@@ -4,7 +4,13 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+)
 
 from creator_preflight.models import FindingSeverity
 
@@ -66,11 +72,98 @@ class DetectorConfig(BaseModel):
     streams: StreamExpectationConfig = Field(default_factory=StreamExpectationConfig)
 
 
+def _parse_aspect_ratio(value: str) -> float:
+    parts = value.split(":")
+    if len(parts) != 2:
+        raise ValueError("aspect ratio must use WIDTH:HEIGHT format")
+    try:
+        width, height = (float(part) for part in parts)
+    except ValueError as exc:
+        raise ValueError("aspect ratio components must be numeric") from exc
+    if width <= 0 or height <= 0:
+        raise ValueError("aspect ratio components must be greater than zero")
+    return width / height
+
+
+class VideoRuleConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    minimum_width: int = Field(default=1280, gt=0)
+    minimum_height: int = Field(default=720, gt=0)
+    allowed_aspect_ratios: list[str] = Field(
+        default_factory=lambda: ["16:9", "9:16", "1:1"], min_length=1
+    )
+    aspect_ratio_tolerance: float = Field(default=0.02, ge=0, le=0.25)
+    require_video: bool = True
+    require_audio: bool = True
+
+    @field_validator("allowed_aspect_ratios")
+    @classmethod
+    def validate_aspect_ratios(cls, values: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        for value in values:
+            normalized = value.strip()
+            _parse_aspect_ratio(normalized)
+            if normalized not in cleaned:
+                cleaned.append(normalized)
+        if not cleaned:
+            raise ValueError("at least one allowed aspect ratio is required")
+        return cleaned
+
+
+class TitleRuleConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    require: bool = True
+    maximum_recommended_length: int = Field(default=100, gt=0, le=10000)
+
+
+class DescriptionRuleConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    require: bool = True
+    required_phrases: list[str] = Field(default_factory=list)
+    validate_urls: bool = True
+
+    @field_validator("required_phrases")
+    @classmethod
+    def validate_required_phrases(cls, values: list[str]) -> list[str]:
+        cleaned = [value.strip() for value in values]
+        if any(not value for value in cleaned):
+            raise ValueError("required phrases cannot be empty")
+        return list(dict.fromkeys(cleaned))
+
+
+class ChapterRuleConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    require: bool = False
+    require_first_at_zero: bool = True
+
+
+class CaptionRuleConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    require: bool = False
+
+
+class CreatorRuleConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    profile_id: str = Field(default="default", min_length=1)
+    video: VideoRuleConfig = Field(default_factory=VideoRuleConfig)
+    title: TitleRuleConfig = Field(default_factory=TitleRuleConfig)
+    description: DescriptionRuleConfig = Field(default_factory=DescriptionRuleConfig)
+    chapters: ChapterRuleConfig = Field(default_factory=ChapterRuleConfig)
+    captions: CaptionRuleConfig = Field(default_factory=CaptionRuleConfig)
+
+
 class PreflightConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal[1] = 1
     detectors: DetectorConfig = Field(default_factory=DetectorConfig)
+    rules: CreatorRuleConfig = Field(default_factory=CreatorRuleConfig)
 
 
 class ConfigurationError(Exception):
@@ -83,7 +176,7 @@ class ConfigurationError(Exception):
 
 
 def load_config(path: str | Path) -> PreflightConfig:
-    """Load and validate detector configuration from YAML."""
+    """Load and validate detector and creator-rule configuration from YAML."""
 
     config_path = Path(path)
     try:
@@ -111,3 +204,9 @@ def load_config(path: str | Path) -> PreflightConfig:
         raise ConfigurationError(
             "Detector configuration is invalid.", errors=errors
         ) from exc
+
+
+def aspect_ratio_value(value: str) -> float:
+    """Return the numeric value of an already validated WIDTH:HEIGHT ratio."""
+
+    return _parse_aspect_ratio(value)

@@ -1,8 +1,7 @@
 # Creator Preflight
 
-Creator Preflight is currently a Milestone 0 repository scaffold for a planned local-first, pre-publish QA system for video creators.
+Creator Preflight is a local-first, pre-publish QA project for video creators. Through Milestone 3, its Python backend can inspect local media, run deterministic FFmpeg anomaly checks, validate creator publishing metadata, and produce an explainable `READY`, `NEEDS_REVIEW`, or `BLOCKED` report.
 
-The repository currently contains project documentation, an installable Python backend package skeleton, a buildable React and TypeScript frontend skeleton, and a default YAML configuration file. Scanning, detectors, API endpoints, and product UI are not implemented.
+The unified scanner is available through the `creator-preflight` CLI and a FastAPI upload endpoint. The React and TypeScript frontend remains a buildable skeleton and is not integrated with scanning yet.
 
 See `docs/SPEC.md`, `docs/ARCHITECTURE.md`, and `docs/STATUS.md` for the current project contract and status.
-

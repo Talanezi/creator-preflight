@@ -1,8 +1,9 @@
-"""Minimal Milestone 2 orchestration for deterministic media detectors."""
+"""Shared media anomaly and unified Creator Preflight scanning services."""
 
 from pathlib import Path
+from time import perf_counter
 
-from creator_preflight.config import DetectorConfig
+from creator_preflight.config import DetectorConfig, PreflightConfig
 from creator_preflight.detectors import (
     detect_black_segments,
     detect_freeze_segments,
@@ -11,7 +12,15 @@ from creator_preflight.detectors import (
     inspect_audio_peak,
 )
 from creator_preflight.media import MediaInspector
-from creator_preflight.models import AnomalyScanResult, Finding
+from creator_preflight.models import (
+    AnomalyScanResult,
+    CheckResult,
+    Finding,
+    FindingStatus,
+    PreflightReport,
+    PublishingPackage,
+)
+from creator_preflight.rules import evaluate_package_rules
 
 
 class MediaAnomalyScanner:
@@ -83,3 +92,184 @@ class MediaAnomalyScanner:
             )
         )
         return AnomalyScanResult(media=media, findings=findings)
+
+
+class PreflightScanner:
+    """Run one complete, deterministic preflight scan for every adapter."""
+
+    def __init__(
+        self,
+        *,
+        config: PreflightConfig | None = None,
+        configuration_source: str | None = None,
+        ffprobe_binary: str = "ffprobe",
+        ffmpeg_binary: str = "ffmpeg",
+        timeout_seconds: float = 60,
+    ) -> None:
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be greater than zero")
+        self.config = config or PreflightConfig()
+        self.configuration_source = configuration_source
+        self.ffprobe_binary = ffprobe_binary
+        self.ffmpeg_binary = ffmpeg_binary
+        self.timeout_seconds = timeout_seconds
+
+    def scan(
+        self, media_path: str | Path, package: PublishingPackage
+    ) -> PreflightReport:
+        started_at = perf_counter()
+        detector_config = self.config.detectors.model_copy(deep=True)
+        detector_config.streams.expect_video = self.config.rules.video.require_video
+        detector_config.streams.expect_audio = self.config.rules.video.require_audio
+
+        anomaly_result = MediaAnomalyScanner(
+            config=detector_config,
+            ffprobe_binary=self.ffprobe_binary,
+            ffmpeg_binary=self.ffmpeg_binary,
+            timeout_seconds=self.timeout_seconds,
+        ).scan(media_path)
+        package_result = evaluate_package_rules(
+            package, anomaly_result.media, self.config.rules
+        )
+        findings = reconcile_findings(
+            [*anomaly_result.findings, *package_result.findings]
+        )
+        findings.sort(key=finding_sort_key)
+
+        checks = [
+            *_technical_check_results(
+                anomaly_result.media, findings, detector_config
+            ),
+            *package_result.checks,
+        ]
+        passed_count = sum(check.passed for check in checks)
+        warning_count = sum(
+            finding.status is FindingStatus.NEEDS_REVIEW for finding in findings
+        )
+        critical_count = sum(
+            finding.status is FindingStatus.BLOCKED for finding in findings
+        )
+        verdict = (
+            FindingStatus.BLOCKED
+            if critical_count
+            else FindingStatus.NEEDS_REVIEW
+            if warning_count
+            else FindingStatus.READY
+        )
+        return PreflightReport(
+            verdict=verdict,
+            media=anomaly_result.media,
+            findings=findings,
+            checks=checks,
+            checks_run_count=len(checks),
+            passed_check_count=passed_count,
+            warning_count=warning_count,
+            critical_count=critical_count,
+            configuration_profile=(
+                package.profile_id or self.config.rules.profile_id
+            ),
+            configuration_source=self.configuration_source,
+            scan_duration_seconds=perf_counter() - started_at,
+        )
+
+
+def reconcile_findings(findings: list[Finding]) -> list[Finding]:
+    """Suppress only explicit duplicate streams and black-contained freezes."""
+
+    black_intervals = [
+        (finding.timestamp_start_seconds, finding.timestamp_end_seconds)
+        for finding in findings
+        if finding.code == "VIDEO_BLACK_SEGMENT"
+        and finding.timestamp_start_seconds is not None
+        and finding.timestamp_end_seconds is not None
+    ]
+    reconciled: list[Finding] = []
+    seen_missing_stream_codes: set[str] = set()
+    for finding in findings:
+        if finding.code in {"VIDEO_STREAM_MISSING", "AUDIO_STREAM_MISSING"}:
+            if finding.code in seen_missing_stream_codes:
+                continue
+            seen_missing_stream_codes.add(finding.code)
+        if finding.code == "VIDEO_FREEZE_SEGMENT" and _mostly_inside_any_interval(
+            finding, black_intervals
+        ):
+            continue
+        reconciled.append(finding)
+    return reconciled
+
+
+def finding_sort_key(finding: Finding) -> tuple[int, int, float, str, str]:
+    """Critical before warning; within severity, timestamped before global."""
+
+    severity_rank = {
+        FindingStatus.BLOCKED: 0,
+        FindingStatus.NEEDS_REVIEW: 1,
+        FindingStatus.READY: 2,
+    }[finding.status]
+    timestamp_group = 0 if finding.timestamp_start_seconds is not None else 1
+    return (
+        severity_rank,
+        timestamp_group,
+        finding.timestamp_start_seconds or 0.0,
+        finding.code,
+        finding.message,
+    )
+
+
+def _mostly_inside_any_interval(
+    finding: Finding,
+    intervals: list[tuple[float | None, float | None]],
+    *,
+    required_overlap: float = 0.90,
+) -> bool:
+    start = finding.timestamp_start_seconds
+    end = finding.timestamp_end_seconds
+    if start is None or end is None or end <= start:
+        return False
+    duration = end - start
+    for container_start, container_end in intervals:
+        if container_start is None or container_end is None:
+            continue
+        overlap = max(0.0, min(end, container_end) - max(start, container_start))
+        if overlap / duration >= required_overlap:
+            return True
+    return False
+
+
+def _technical_check_results(
+    media,
+    findings: list[Finding],
+    config: DetectorConfig,
+) -> list[CheckResult]:
+    checks: list[tuple[str, set[str]]] = []
+    if config.streams.expect_video:
+        checks.append(("media.video_stream", {"VIDEO_STREAM_MISSING"}))
+    if config.streams.expect_audio:
+        checks.append(("media.audio_stream", {"AUDIO_STREAM_MISSING"}))
+    if media.has_video:
+        checks.extend(
+            [
+                ("detector.black", {"VIDEO_BLACK_SEGMENT"}),
+                ("detector.freeze", {"VIDEO_FREEZE_SEGMENT"}),
+            ]
+        )
+    if media.has_audio:
+        checks.extend(
+            [
+                ("detector.silence", {"AUDIO_LONG_SILENCE"}),
+                ("detector.audio_peak", {"AUDIO_PEAK_WARNING"}),
+            ]
+        )
+    results: list[CheckResult] = []
+    for check_id, codes in checks:
+        matching_codes = [
+            finding.code for finding in findings if finding.code in codes
+        ]
+        results.append(
+            CheckResult(
+                check_id=check_id,
+                passed=not matching_codes,
+                finding_codes=matching_codes,
+            )
+        )
+    return results

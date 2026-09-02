@@ -3,6 +3,8 @@
 from enum import Enum
 from typing import Any
 
+from pathlib import Path
+
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 
@@ -83,6 +85,46 @@ class AnomalyScanResult(BaseModel):
 
     media: MediaInspection
     findings: list[Finding]
+
+
+class PublishingPackage(BaseModel):
+    """Creator-supplied publishing metadata, independent of any adapter."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = ""
+    description: str = ""
+    captions_path: Path | None = None
+    profile_id: str | None = Field(default=None, min_length=1)
+
+
+class CheckResult(BaseModel):
+    """One explicitly executed check and the findings that caused it to fail."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    check_id: str = Field(min_length=1)
+    passed: bool
+    finding_codes: list[str] = Field(default_factory=list)
+
+
+class PreflightReport(BaseModel):
+    """Unified, explainable Creator Preflight scan report."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = "1.0"
+    verdict: FindingStatus
+    media: MediaInspection
+    findings: list[Finding]
+    checks: list[CheckResult]
+    checks_run_count: int = Field(ge=0)
+    passed_check_count: int = Field(ge=0)
+    warning_count: int = Field(ge=0)
+    critical_count: int = Field(ge=0)
+    configuration_profile: str
+    configuration_source: str | None = None
+    scan_duration_seconds: float = Field(ge=0)
 
 
 class MediaToolAvailability(BaseModel):

@@ -22,3 +22,30 @@ detectors:
     expect_audio: true
     missing_video_severity: error
     missing_audio_severity: warning
+
+# Creator package rules. Aspect-ratio tolerance is a relative fraction, so
+# 0.02 permits up to a 2% difference from an allowed WIDTH:HEIGHT ratio.
+rules:
+  profile_id: default
+  video:
+    minimum_width: 1280
+    minimum_height: 720
+    allowed_aspect_ratios:
+      - "16:9"
+      - "9:16"
+      - "1:1"
+    aspect_ratio_tolerance: 0.02
+    require_video: true
+    require_audio: true
+  title:
+    require: true
+    maximum_recommended_length: 100
+  description:
+    require: true
+    required_phrases: []
+    validate_urls: true
+  chapters:
+    require: false
+    require_first_at_zero: true
+  captions:
+    require: false

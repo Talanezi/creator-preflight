@@ -14,6 +14,9 @@ dependencies = [
   "PyYAML>=6,<7",
 ]
 
+[project.scripts]
+creator-preflight = "creator_preflight.cli:main"
+
 [project.optional-dependencies]
 dev = [
   "httpx>=0.27,<1",
