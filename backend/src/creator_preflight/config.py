@@ -145,6 +145,25 @@ class CaptionRuleConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     require: bool = False
+    maximum_file_size_bytes: int = Field(default=5_000_000, gt=0, le=50_000_000)
+    maximum_uncovered_gap_seconds: float = Field(default=10.0, gt=0, le=3600)
+    overlap_warning_threshold_seconds: float = Field(default=0.5, gt=0, le=3600)
+    warn_on_empty_cues: bool = True
+
+
+class TranscriptionConfig(BaseModel):
+    """Opt-in local faster-whisper settings; disabled and network-free by default."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    model: str = Field(default="tiny.en", min_length=1, max_length=200)
+    device: Literal["cpu", "cuda", "auto"] = "cpu"
+    compute_type: str = Field(default="int8", min_length=1, max_length=50)
+    local_files_only: bool = True
+    speech_gap_minimum_seconds: float = Field(default=2.0, gt=0, le=3600)
+    boundary_tolerance_seconds: float = Field(default=0.3, ge=0, le=5)
+    adjacent_gap_merge_seconds: float = Field(default=0.5, ge=0, le=10)
 
 
 class CreatorRuleConfig(BaseModel):
@@ -164,6 +183,7 @@ class PreflightConfig(BaseModel):
     schema_version: Literal[1] = 1
     detectors: DetectorConfig = Field(default_factory=DetectorConfig)
     rules: CreatorRuleConfig = Field(default_factory=CreatorRuleConfig)
+    transcription: TranscriptionConfig = Field(default_factory=TranscriptionConfig)
 
 
 class ConfigurationError(Exception):

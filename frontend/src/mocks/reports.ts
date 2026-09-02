@@ -149,6 +149,7 @@ export const needsReviewReport: PreflightReport = {
   critical_count: 0,
   configuration_profile: "default",
   configuration_source: "typed defaults",
+  caption_summary: null,
   scan_duration_seconds: 0.159,
 };
 

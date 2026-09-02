@@ -2,9 +2,9 @@
 
 ## Current milestone
 
-Milestone 5 — real end-to-end frontend/backend integration.
+Milestone 6 — caption-file inspection and optional local speech/caption coverage.
 
-Status: completed on 2026-09-01.
+Status: completed on 2026-09-02.
 
 ## Completed
 
@@ -51,12 +51,18 @@ Status: completed on 2026-09-01.
 - AbortController cancellation and request sequencing prevent reset, retry, or later scans from rendering obsolete results or intentional-abort errors.
 - Browser object-URL preview lifecycle retained with cleanup on replacement, reset, and unmount; real finding timecodes and timeline markers seek the selected local video.
 - Vite development proxy routes `/api` to the local FastAPI server on `127.0.0.1:8000`.
+- Content-based UTF-8 SRT and WebVTT parsing with BOM, CRLF/LF, multiline text, cue identifiers, hour timestamps, and ordinary WebVTT cue settings.
+- Typed caption cues, structured parse issues, deterministic timing/order/range/overlap/empty-text/large-gap findings, and bounded caption file handling.
+- Compact `caption_summary` report data with cue count, first/last cue times, merged covered duration, and timeline coverage capped at 100%.
+- Caption checks integrated into the existing scanner, verdict, stable finding order, explicit check accounting, CLI, multipart API, TypeScript contract, category filters, timeline, and click-to-seek behavior.
+- Opt-in `faster-whisper` dependency group with disabled-by-default configuration, lazy imports/model loading, process-local model reuse, CPU defaults, and automatic downloads disabled by default.
+- Deterministic speech-versus-caption interval subtraction with boundary tolerance, adjacent-gap merging, minimum-duration filtering, and conservative `CAPTION_SPEECH_GAP` findings.
+- Graceful structured review findings when optional speech recognition dependencies, models, or transcription execution are unavailable; deterministic caption and core media checks continue.
 
 ## Not implemented
 
-- Caption file parsing, cue validation, or caption coverage analysis.
-- SRT/VTT parsing, transcription, or speech analysis.
-- Optional local `faster-whisper` support.
+- Caption editing, transcript editing, or caption generation.
+- Cloud transcription or speech APIs.
 - Platform integrations, persistence, deployment, or account features.
 
 ## Blockers
@@ -70,7 +76,11 @@ None known.
 - Detectors analyze the first selected video or audio stream. Stream counts remain available from media inspection, but per-stream anomaly reports are not implemented.
 - Each applicable detector uses a separate bounded FFmpeg pass. This is reliable and fast for short demo media but intentionally not optimized into a combined filter graph.
 - Static shots, title cards, still images, intentional silence, and intentional dark sections can produce review warnings; findings are evidence for review, not claims of definite corruption.
-- Caption validation is presence-only; the supplied path/upload contents are not parsed.
+- SRT/WebVTT parsing intentionally covers QA-relevant timing and text extraction, not every browser rendering, styling, region, or positioning feature.
+- Timeline coverage measures time inside at least one caption cue; without optional speech recognition it does not establish spoken-word coverage.
+- Long cue gaps, cue overlaps, and detected speech gaps are review evidence rather than proof of an error. Music, silence, intentional visuals, multiple speakers, and Whisper segmentation can produce legitimate intervals.
+- Speech/caption comparison depends on approximate local Whisper segments and uses configurable tolerance; it does not compare transcript strings or certify caption accuracy.
+- Caption uploads are limited to 5,000,000 bytes by default and must be UTF-8 text.
 - Chapter parsing recognizes only lines beginning with `MM:SS` or `H:MM:SS` followed by a name. Inline times and ordinary numbers are intentionally ignored.
 - URL validation reports only obvious syntax errors in HTTP(S)/`www.`-style tokens. It does not resolve, request, classify, or establish the safety of a URL.
 - CLI exit code 1 represents a completed scan with either `NEEDS_REVIEW` or `BLOCKED`; it is not a runtime crash.
@@ -118,3 +128,14 @@ None known.
 - Browser interaction smoke — real marker positions were 16.6667%, 25%, and 58.3333%; the black finding sought the local video to 2 seconds and the freeze timeline marker sought it to 7 seconds.
 - Browser lifecycle/error smoke — New scan removed the prior report; a real malformed upload rendered the structured invalid-media error rather than BLOCKED; Return preserved form data for retry; replacing the file and rescanning produced a fresh 10-passed/4-warning report without the prior title warning or stale error.
 - Backend temporary-upload cleanup check — no `creator-preflight-*` request directories remained after successful and invalid-media requests.
+- Milestone 6 `.venv/bin/python -m pytest backend/tests` — 102 passed, 0 failed, with 1 upstream Starlette `TestClient` deprecation warning. Existing Milestone 1–5 tests remain passing.
+- Milestone 6 `cd frontend && npm test` — 2 test files passed; 23 tests passed, 0 failed. Caption category rendering, timestamp seeking, global finding timeline exclusion, non-null caption-summary contract validation, and all prior integration behavior are covered.
+- Milestone 6 `cd frontend && npm run build` — passed; TypeScript compiled cleanly and Vite produced the production bundle. `git diff --check` passed; no separate lint command is configured.
+- Actual installed CLI with fresh deterministic video plus valid SRT — `NEEDS_REVIEW`; 20 checks, 16 passed, 4 existing media warnings, 0 critical; 4 cues, 12.0 seconds merged coverage, 100% timeline coverage; JSON parsed cleanly; exit code 1 correctly represented a completed warning scan. Report runtime was approximately 0.479 seconds and wall time 0.702 seconds.
+- Actual CLI malformed-SRT scan — completed as `NEEDS_REVIEW` rather than crashing; 15 checks, 10 passed, 6 warnings, 0 critical, including `CAPTION_PARSE_ERROR` and `CAPTION_EMPTY`; human output rendered both caption findings.
+- Live FastAPI multipart WebVTT upload — HTTP 200 in approximately 0.510 seconds; report runtime 0.492 seconds; `NEEDS_REVIEW`, 20 checks, 16 passed, 4 existing media warnings, 0 critical; 3 parsed cues and 100% merged timeline coverage.
+- Live FastAPI malformed-caption upload — HTTP 200 in approximately 0.446 seconds; report runtime 0.438 seconds; 15 checks, 10 passed, 6 warnings, 0 critical; returned structured caption findings and a zero-cue summary. No request temporary directories remained after valid or malformed uploads.
+- Speech/caption comparison tests cover fully covered speech, uncovered speech, partial coverage, boundary tolerance, no speech, no captions, adjacent uncovered-segment merging, optional-disabled behavior, unavailable dependency/model behavior, transcription failure, model reuse, and mocked successful scanner integration.
+- Actual optional-transcription unavailable smoke with `transcription.enabled: true` and no installed optional dependency — the core scan completed `NEEDS_REVIEW` with a `CAPTION_TRANSCRIPTION_UNAVAILABLE` finding and `reason_code: transcription_dependency_unavailable`.
+- A real faster-whisper model transcription was not performed: `faster-whisper` is not installed and no local model is cached in this environment. No dependency/model download was initiated solely for the smoke test. Automated tests remain network-free.
+- Deterministic SRT parsing averaged approximately 0.0205 ms per four-cue file over 1,000 local iterations; caption parsing added negligible time relative to FFmpeg analysis.

@@ -17,7 +17,7 @@ The planned P0 scan accepts one local upload package containing:
 - a required description supplied as text, which may be empty;
 - an optional local captions file.
 
-The initial captions interchange format will be UTF-8 WebVTT (`.vtt`). Supported video containers and codecs will be limited to formats that the installed FFmpeg/FFprobe build can read; the application will report unsupported or unreadable files rather than attempt transcoding. Inputs are local files and text only. Online URLs are not supported.
+Caption inputs support UTF-8 SubRip (`.srt`) and WebVTT (`.vtt`) content. Validity is determined from file content rather than extension alone. Supported video containers and codecs are limited to formats that the installed FFmpeg/FFprobe build can read; the application reports unsupported or unreadable files rather than attempting transcoding. Inputs are local files and text only. Online URLs are not supported.
 
 ## 3. Normalized finding schema
 
@@ -46,7 +46,7 @@ P0 is the first usable, entirely local product milestone after scaffolding.
 - Use FFprobe to extract machine-readable container, stream, duration, frame-rate, resolution, and audio metadata.
 - Use FFmpeg/FFprobe-based checks for unreadable media, missing video or audio streams, invalid or zero duration, frozen/black video intervals, silence intervals, clipping risk, and basic output constraints defined in YAML.
 - Validate title and description against configurable presence and length rules.
-- Parse and validate optional UTF-8 WebVTT captions, including cue timing and media-duration bounds.
+- Parse and validate optional UTF-8 SRT or WebVTT captions, including cue timing, ordering, overlaps, gaps, and media-duration bounds.
 - Normalize every result into the finding schema and compute the overall report status deterministically.
 - Include timestamps for findings tied to a media interval.
 - Provide machine-readable JSON output and a readable CLI report.
@@ -105,4 +105,3 @@ The following are explicitly outside the product scope:
 - content moderation;
 - browser extensions;
 - mobile apps.
-

@@ -5,9 +5,11 @@ from pydantic import ValidationError
 
 from creator_preflight.config import (
     BlackDetectorConfig,
+    CaptionRuleConfig,
     ConfigurationError,
     PreflightConfig,
     TitleRuleConfig,
+    TranscriptionConfig,
     VideoRuleConfig,
     load_config,
 )
@@ -25,6 +27,9 @@ def test_default_detector_configuration_loads() -> None:
     assert config.rules.video.minimum_width == 1280
     assert config.rules.title.maximum_recommended_length == 100
     assert config.rules.description.validate_urls is True
+    assert config.rules.captions.maximum_uncovered_gap_seconds == 10.0
+    assert config.transcription.enabled is False
+    assert config.transcription.local_files_only is True
 
 
 def test_detector_configuration_rejects_invalid_threshold() -> None:
@@ -77,6 +82,21 @@ def test_invalid_video_dimensions_are_rejected(field: str) -> None:
 def test_invalid_title_limit_is_rejected() -> None:
     with pytest.raises(ValidationError):
         TitleRuleConfig(maximum_recommended_length=0)
+
+
+@pytest.mark.parametrize(
+    "model,values",
+    [
+        (CaptionRuleConfig, {"maximum_uncovered_gap_seconds": 0}),
+        (CaptionRuleConfig, {"overlap_warning_threshold_seconds": -1}),
+        (CaptionRuleConfig, {"maximum_file_size_bytes": 0}),
+        (TranscriptionConfig, {"speech_gap_minimum_seconds": 0}),
+        (TranscriptionConfig, {"boundary_tolerance_seconds": -0.1}),
+    ],
+)
+def test_invalid_caption_and_transcription_thresholds_are_rejected(model, values) -> None:
+    with pytest.raises(ValidationError):
+        model(**values)
 
 
 @pytest.mark.parametrize("ratios", [[], ["16x9"], ["16:0"]])

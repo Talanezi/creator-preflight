@@ -3,6 +3,7 @@
 from pathlib import Path
 from time import perf_counter
 
+from creator_preflight.captions import inspect_caption_file, speech_gap_findings
 from creator_preflight.config import DetectorConfig, PreflightConfig
 from creator_preflight.detectors import (
     detect_black_segments,
@@ -16,11 +17,17 @@ from creator_preflight.models import (
     AnomalyScanResult,
     CheckResult,
     Finding,
+    FindingSeverity,
     FindingStatus,
     PreflightReport,
     PublishingPackage,
 )
 from creator_preflight.rules import evaluate_package_rules
+from creator_preflight.transcription import (
+    SpeechTranscriber,
+    TranscriptionUnavailableError,
+    WhisperTranscriber,
+)
 
 
 class MediaAnomalyScanner:
@@ -105,6 +112,7 @@ class PreflightScanner:
         ffprobe_binary: str = "ffprobe",
         ffmpeg_binary: str = "ffmpeg",
         timeout_seconds: float = 60,
+        transcriber: SpeechTranscriber | None = None,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be greater than zero")
@@ -113,6 +121,7 @@ class PreflightScanner:
         self.ffprobe_binary = ffprobe_binary
         self.ffmpeg_binary = ffmpeg_binary
         self.timeout_seconds = timeout_seconds
+        self.transcriber = transcriber or WhisperTranscriber()
 
     def scan(
         self, media_path: str | Path, package: PublishingPackage
@@ -131,8 +140,53 @@ class PreflightScanner:
         package_result = evaluate_package_rules(
             package, anomaly_result.media, self.config.rules
         )
+        caption_findings: list[Finding] = []
+        caption_checks: list[CheckResult] = []
+        caption_summary = None
+        caption_cues = []
+        if package.captions_path is not None:
+            caption_result = inspect_caption_file(
+                package.captions_path,
+                media_duration_seconds=anomaly_result.media.duration_seconds,
+                config=self.config.rules.captions,
+            )
+            caption_findings.extend(caption_result.findings)
+            caption_checks.extend(caption_result.checks)
+            caption_summary = caption_result.summary
+            caption_cues = caption_result.cues
+
+        if self.config.transcription.enabled and anomaly_result.media.has_audio:
+            try:
+                speech_segments = self.transcriber.transcribe(
+                    media_path, self.config.transcription
+                )
+                gap_findings = speech_gap_findings(
+                    speech_segments, caption_cues, self.config.transcription
+                )
+                caption_findings.extend(gap_findings)
+                caption_checks.append(
+                    CheckResult(
+                        check_id="captions.speech_coverage",
+                        passed=not gap_findings,
+                        finding_codes=[finding.code for finding in gap_findings],
+                    )
+                )
+            except TranscriptionUnavailableError as exc:
+                unavailable = _transcription_unavailable_finding(exc)
+                caption_findings.append(unavailable)
+                caption_checks.append(
+                    CheckResult(
+                        check_id="captions.speech_coverage",
+                        passed=False,
+                        finding_codes=[unavailable.code],
+                    )
+                )
         findings = reconcile_findings(
-            [*anomaly_result.findings, *package_result.findings]
+            [
+                *anomaly_result.findings,
+                *package_result.findings,
+                *caption_findings,
+            ]
         )
         findings.sort(key=finding_sort_key)
 
@@ -141,6 +195,7 @@ class PreflightScanner:
                 anomaly_result.media, findings, detector_config
             ),
             *package_result.checks,
+            *caption_checks,
         ]
         passed_count = sum(check.passed for check in checks)
         warning_count = sum(
@@ -169,6 +224,7 @@ class PreflightScanner:
                 package.profile_id or self.config.rules.profile_id
             ),
             configuration_source=self.configuration_source,
+            caption_summary=caption_summary,
             scan_duration_seconds=perf_counter() - started_at,
         )
 
@@ -273,3 +329,21 @@ def _technical_check_results(
             )
         )
     return results
+
+
+def _transcription_unavailable_finding(
+    exc: TranscriptionUnavailableError,
+) -> Finding:
+    return Finding(
+        code="CAPTION_TRANSCRIPTION_UNAVAILABLE",
+        severity=FindingSeverity.WARNING,
+        status=FindingStatus.NEEDS_REVIEW,
+        message=exc.message,
+        source="captions.speech",
+        details={
+            "category": "captions",
+            "title": "Optional speech recognition unavailable",
+            "reason_code": exc.code,
+        },
+        suggestion="Disable transcription or install/configure a local faster-whisper model, then scan again.",
+    )

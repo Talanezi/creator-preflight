@@ -1,5 +1,6 @@
 import type {
   CheckResult,
+  CaptionSummary,
   Finding,
   MediaInspection,
   PreflightReport,
@@ -161,7 +162,18 @@ function isPreflightReport(value: unknown): value is PreflightReport {
     && isNonnegativeNumber(value.critical_count)
     && typeof value.configuration_profile === "string"
     && isNullableString(value.configuration_source)
+    && (value.caption_summary === null || isCaptionSummary(value.caption_summary))
     && isNonnegativeNumber(value.scan_duration_seconds);
+}
+
+function isCaptionSummary(value: unknown): value is CaptionSummary {
+  return isRecord(value)
+    && typeof value.source_format === "string"
+    && isNonnegativeNumber(value.cue_count)
+    && isNullableNumber(value.first_caption_seconds)
+    && isNullableNumber(value.last_caption_seconds)
+    && isNonnegativeNumber(value.covered_duration_seconds)
+    && isNullablePercentage(value.timeline_coverage_percent);
 }
 
 function isFinding(value: unknown): value is Finding {
@@ -223,6 +235,10 @@ function isNullableNumber(value: unknown): value is number | null {
 
 function isNonnegativeNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function isNullablePercentage(value: unknown): value is number | null {
+  return value === null || (isNonnegativeNumber(value) && value <= 100);
 }
 
 function isJsonObject(value: Record<string, unknown>): boolean {

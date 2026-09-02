@@ -108,6 +108,19 @@ class CheckResult(BaseModel):
     finding_codes: list[str] = Field(default_factory=list)
 
 
+class CaptionSummary(BaseModel):
+    """Compact timeline coverage statistics for a parsed caption file."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_format: str
+    cue_count: int = Field(ge=0)
+    first_caption_seconds: float | None = Field(default=None, ge=0)
+    last_caption_seconds: float | None = Field(default=None, ge=0)
+    covered_duration_seconds: float = Field(ge=0)
+    timeline_coverage_percent: float | None = Field(default=None, ge=0, le=100)
+
+
 class PreflightReport(BaseModel):
     """Unified, explainable Creator Preflight scan report."""
 
@@ -124,6 +137,7 @@ class PreflightReport(BaseModel):
     critical_count: int = Field(ge=0)
     configuration_profile: str
     configuration_source: str | None = None
+    caption_summary: CaptionSummary | None = None
     scan_duration_seconds: float = Field(ge=0)
 
 

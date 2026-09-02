@@ -270,7 +270,7 @@ def evaluate_package_rules(
                 FindingSeverity.ERROR,
                 "A captions input is required for this publishing package.",
                 "package.captions",
-                "Supply a captions file reference; caption contents are not parsed in this milestone.",
+                "Supply a UTF-8 SRT or WebVTT captions file.",
                 title="Required captions missing",
             )
             findings.append(finding)

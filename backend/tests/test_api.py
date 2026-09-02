@@ -2,8 +2,10 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from tempfile import TemporaryDirectory as RealTemporaryDirectory
 
 from creator_preflight.api import app
+from creator_preflight import api as api_module
 
 client = TestClient(app)
 
@@ -107,3 +109,66 @@ def test_unified_api_anomaly_report_matches_real_frontend_contract(
     assert findings["AUDIO_LONG_SILENCE"]["timestamp_end_seconds"] == pytest.approx(6.0, abs=0.2)
     assert findings["VIDEO_FREEZE_SEGMENT"]["timestamp_start_seconds"] == pytest.approx(7.0, abs=0.2)
     assert findings["VIDEO_FREEZE_SEGMENT"]["timestamp_end_seconds"] == pytest.approx(10.0, abs=0.2)
+
+
+def test_real_caption_upload_reaches_parser(video_with_audio: Path) -> None:
+    captions = b"WEBVTT\n\n00:00:00.000 --> 00:00:00.800\nHello\n"
+    with video_with_audio.open("rb") as media_file:
+        response = client.post(
+            "/api/v1/preflight/scan",
+            files={
+                "file": ("video.mp4", media_file, "video/mp4"),
+                "captions": ("captions.vtt", captions, "text/vtt"),
+            },
+            data={"title": "Title", "description": "Description"},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["caption_summary"]["source_format"] == "vtt"
+    assert payload["caption_summary"]["cue_count"] == 1
+    assert "captions.parse" in [check["check_id"] for check in payload["checks"]]
+    assert "CAPTION_PARSE_ERROR" not in [finding["code"] for finding in payload["findings"]]
+
+
+def test_malformed_caption_upload_returns_report_and_cleans_temp_files(
+    video_with_audio: Path, monkeypatch
+) -> None:
+    created_paths: list[Path] = []
+
+    def recording_temporary_directory(*args, **kwargs):
+        temporary = RealTemporaryDirectory(*args, **kwargs)
+        created_paths.append(Path(temporary.name))
+        return temporary
+
+    monkeypatch.setattr(api_module, "TemporaryDirectory", recording_temporary_directory)
+    with video_with_audio.open("rb") as media_file:
+        response = client.post(
+            "/api/v1/preflight/scan",
+            files={
+                "file": ("video.mp4", media_file, "video/mp4"),
+                "captions": ("broken.srt", b"not caption syntax", "text/plain"),
+            },
+            data={"title": "Title", "description": "Description"},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "CAPTION_PARSE_ERROR" in [finding["code"] for finding in payload["findings"]]
+    assert "CAPTION_EMPTY" in [finding["code"] for finding in payload["findings"]]
+    assert created_paths and all(not path.exists() for path in created_paths)
+
+
+def test_caption_upload_size_limit_is_structured(video_with_audio: Path) -> None:
+    with video_with_audio.open("rb") as media_file:
+        response = client.post(
+            "/api/v1/preflight/scan",
+            files={
+                "file": ("video.mp4", media_file, "video/mp4"),
+                "captions": ("too-large.srt", b"x" * 5_000_001, "text/plain"),
+            },
+            data={"title": "Title", "description": "Description"},
+        )
+
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "caption_file_too_large"

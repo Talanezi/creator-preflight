@@ -46,6 +46,15 @@ export interface CheckResult {
   finding_codes: string[];
 }
 
+export interface CaptionSummary {
+  source_format: string;
+  cue_count: number;
+  first_caption_seconds: number | null;
+  last_caption_seconds: number | null;
+  covered_duration_seconds: number;
+  timeline_coverage_percent: number | null;
+}
+
 export interface PreflightReport {
   schema_version: string;
   verdict: FindingStatus;
@@ -58,5 +67,6 @@ export interface PreflightReport {
   critical_count: number;
   configuration_profile: string;
   configuration_source: string | null;
+  caption_summary: CaptionSummary | null;
   scan_duration_seconds: number;
 }

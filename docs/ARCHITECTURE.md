@@ -2,9 +2,9 @@
 
 ## Current state
 
-Milestone 3 implements the unified Creator Preflight scanning path. `creator_preflight.media` validates and inspects local media; `creator_preflight.detectors` contains the independent Milestone 2 FFmpeg checks; `creator_preflight.rules` parses creator-style chapter lines and validates video/package metadata; and `creator_preflight.engine.PreflightScanner` coordinates one complete scan.
+`creator_preflight.media` validates and inspects local media; `creator_preflight.detectors` contains the independent FFmpeg checks; `creator_preflight.rules` parses creator-style chapter lines and validates video/package metadata; `creator_preflight.captions` parses and validates SRT/WebVTT content and performs interval coverage comparisons; and `creator_preflight.engine.PreflightScanner` coordinates one complete scan.
 
-The scanner reconciles redundant black-contained freeze findings, sorts final findings deterministically, records every executed check, derives counts, and computes `READY`, `NEEDS_REVIEW`, or `BLOCKED` directly from finding statuses. The report contains no opaque score. Both `creator_preflight.cli` and the FastAPI unified upload endpoint call this same scanner. The Milestone 1 inspection endpoint remains unchanged. The React interface now submits the real unified multipart request through a focused typed client and renders the returned report; typed mocks remain test fixtures only. Caption-content parsing is not implemented.
+The scanner reconciles redundant black-contained freeze findings, sorts final findings deterministically, records every executed check, derives counts, and computes `READY`, `NEEDS_REVIEW`, or `BLOCKED` directly from finding statuses. Caption checks are added only when a caption file is supplied, while the speech-coverage check is added only when optional transcription is enabled and audio exists. The report contains no opaque score. Both `creator_preflight.cli` and the FastAPI unified upload endpoint call this same scanner. The React interface submits the unified multipart request and renders caption findings through its existing category, timeline, and seek behavior.
 
 ## Target shape
 
@@ -41,6 +41,8 @@ scripts/                 Repository automation scripts
 - `creator_preflight.media`: subprocess boundary for FFmpeg and FFprobe.
 - `creator_preflight.api`: thin FastAPI adapter.
 - `creator_preflight.cli`: thin command-line adapter.
+- `creator_preflight.captions`: deterministic caption parsing, validation, coverage, and speech/caption interval comparison.
+- `creator_preflight.transcription`: optional lazy local faster-whisper adapter.
 
 The `engine`, `models`, `rules`, `detectors`, `media`, `api`, and `cli` boundaries now exist at the scope required through Milestone 3. Rule and detector logic do not depend on FastAPI, CLI formatting, or React. Adapters translate inputs and render results only. FFmpeg/FFprobe execution uses argument arrays rather than a shell, enforces timeouts, captures diagnostics, and converts tool failures into typed application errors.
 
@@ -58,4 +60,4 @@ Configuration is loaded from YAML, validated before scanning, and passed explici
 
 The overall status order is `READY < NEEDS_REVIEW < BLOCKED`. Aggregation is deterministic and independent of presentation. The dependency direction is adapters → engine → domain models/media boundary; the domain layer never imports an adapter.
 
-The core runtime may depend on Python packages, Node build tooling for the frontend, and locally installed FFmpeg/FFprobe. It must not depend on network services at scan time. Optional local `faster-whisper` support belongs in a later, separately installable feature boundary.
+The core runtime depends on Python packages, Node build tooling for the frontend, and locally installed FFmpeg/FFprobe. It does not depend on network services at scan time. `faster-whisper` is isolated in the `transcription` optional dependency group, imported lazily, and disabled by default. The default `local_files_only` setting prevents an implicit model download; loaded models are reused within the backend process.

@@ -20,6 +20,12 @@ from creator_preflight.models import (
 app = FastAPI(title="Creator Preflight", version="0.1.0")
 
 
+class CaptionUploadError(Exception):
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
+
+
 @app.exception_handler(MediaInspectionError)
 async def media_inspection_error_handler(
     request: Request, exc: MediaInspectionError
@@ -64,6 +70,21 @@ async def configuration_error_handler(
     return JSONResponse(status_code=500, content=body.model_dump(mode="json"))
 
 
+@app.exception_handler(CaptionUploadError)
+async def caption_upload_error_handler(
+    request: Request, exc: CaptionUploadError
+) -> JSONResponse:
+    del request
+    body = ErrorResponse(
+        error={
+            "code": "caption_file_too_large",
+            "message": exc.message,
+            "details": None,
+        }
+    )
+    return JSONResponse(status_code=413, content=body.model_dump(mode="json"))
+
+
 @app.post(
     "/api/v1/media/inspect",
     response_model=MediaInspection,
@@ -86,7 +107,11 @@ async def inspect_uploaded_media(file: UploadFile = File(...)) -> MediaInspectio
 @app.post(
     "/api/v1/preflight/scan",
     response_model=PreflightReport,
-    responses={400: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+    responses={
+        400: {"model": ErrorResponse},
+        413: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+    },
 )
 async def scan_uploaded_package(
     file: UploadFile = File(...),
@@ -98,21 +123,30 @@ async def scan_uploaded_package(
 
     try:
         with TemporaryDirectory(prefix="creator-preflight-") as temporary_directory:
+            config = PreflightConfig()
             temporary_path = Path(temporary_directory) / "upload.media"
             with temporary_path.open("wb") as destination:
                 while chunk := await file.read(1024 * 1024):
                     destination.write(chunk)
+            caption_path = None
+            if captions is not None:
+                caption_path = Path(temporary_directory) / "captions.upload"
+                written = 0
+                with caption_path.open("wb") as destination:
+                    while chunk := await captions.read(64 * 1024):
+                        written += len(chunk)
+                        if written > config.rules.captions.maximum_file_size_bytes:
+                            raise CaptionUploadError(
+                                "Caption upload exceeds the configured size limit."
+                            )
+                        destination.write(chunk)
             package = PublishingPackage(
                 title=title,
                 description=description,
-                captions_path=(
-                    Path(captions.filename or "uploaded-captions")
-                    if captions is not None
-                    else None
-                ),
+                captions_path=caption_path,
             )
             return PreflightScanner(
-                config=PreflightConfig(), configuration_source="typed defaults"
+                config=config, configuration_source="typed defaults"
             ).scan(temporary_path, package)
     finally:
         await file.close()

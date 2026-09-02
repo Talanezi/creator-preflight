@@ -93,6 +93,26 @@ describe("Creator Preflight frontend", () => {
     expect(video.currentTime).toBe(7);
   });
 
+  it("renders real caption findings and seeks a timestamped caption gap", async () => {
+    const user = userEvent.setup();
+    const report = captionFindingReport();
+    render(<ResultsView report={report} previewUrl="blob:caption-preview" />);
+    const video = screen.getByTestId("preview-video") as HTMLVideoElement;
+
+    expect(screen.getByRole("button", { name: "Captions 2" })).toBeInTheDocument();
+    expect(screen.getByText("Possible caption gap")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "00:07.00–00:10.00" }));
+    expect(video.currentTime).toBe(7);
+  });
+
+  it("keeps a global caption parse finding off the video timeline", () => {
+    render(<ResultsView report={captionFindingReport()} />);
+
+    expect(screen.queryByRole("button", { name: /Seek to Caption file could not be parsed/ })).not.toBeInTheDocument();
+    expect(screen.getByText("Caption file could not be parsed cleanly")).toBeInTheDocument();
+    expect(screen.getByText("1 timed finding")).toBeInTheDocument();
+  });
+
   it.each([
     [readyReport, "Ready"],
     [needsReviewReport, "Needs review"],
@@ -219,4 +239,50 @@ function jsonResponse(body: unknown, status = 200): Response {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function captionFindingReport(): PreflightReport {
+  return {
+    ...needsReviewReport,
+    findings: [
+      {
+        code: "CAPTION_SPEECH_GAP",
+        severity: "warning",
+        status: "NEEDS_REVIEW",
+        message: "Speech was detected here with little or no caption coverage.",
+        source: "captions.speech",
+        timestamp_start_seconds: 7,
+        timestamp_end_seconds: 10,
+        details: {
+          category: "captions",
+          title: "Possible caption gap",
+          duration_seconds: 3,
+        },
+        suggestion: "Review this section and confirm that spoken content is captioned.",
+      },
+      {
+        code: "CAPTION_PARSE_ERROR",
+        severity: "warning",
+        status: "NEEDS_REVIEW",
+        message: "The supplied caption file contains malformed cue syntax.",
+        source: "captions.validation",
+        timestamp_start_seconds: null,
+        timestamp_end_seconds: null,
+        details: {
+          category: "captions",
+          title: "Caption file could not be parsed cleanly",
+        },
+        suggestion: "Correct the caption syntax.",
+      },
+    ],
+    caption_summary: {
+      source_format: "srt",
+      cue_count: 2,
+      first_caption_seconds: 0,
+      last_caption_seconds: 5,
+      covered_duration_seconds: 4,
+      timeline_coverage_percent: 33.333,
+    },
+    warning_count: 2,
+  };
 }

@@ -49,3 +49,19 @@ rules:
     require_first_at_zero: true
   captions:
     require: false
+    maximum_file_size_bytes: 5000000
+    maximum_uncovered_gap_seconds: 10.0
+    overlap_warning_threshold_seconds: 0.5
+    warn_on_empty_cues: true
+
+# Optional local faster-whisper speech/caption comparison. Disabled by
+# default. local_files_only prevents an implicit model download.
+transcription:
+  enabled: false
+  model: tiny.en
+  device: cpu
+  compute_type: int8
+  local_files_only: true
+  speech_gap_minimum_seconds: 2.0
+  boundary_tolerance_seconds: 0.3
+  adjacent_gap_merge_seconds: 0.5

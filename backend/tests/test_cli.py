@@ -135,3 +135,46 @@ def test_cli_rejects_conflicting_description_inputs() -> None:
             ]
         )
     assert captured.value.code == 2
+
+
+def test_cli_captions_uses_real_parser_in_json_mode(
+    video_with_audio: Path, ready_config_path: Path, tmp_path: Path, capsys
+) -> None:
+    captions = tmp_path / "captions.srt"
+    captions.write_text(
+        "1\n00:00:00,000 --> 00:00:00,900\nCaptioned\n", encoding="utf-8"
+    )
+    exit_code = main(
+        [
+            *_base_args(video_with_audio, ready_config_path),
+            "--captions",
+            str(captions),
+            "--json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["caption_summary"]["source_format"] == "srt"
+    assert payload["caption_summary"]["cue_count"] == 1
+    assert "captions.parse" in [check["check_id"] for check in payload["checks"]]
+
+
+def test_cli_malformed_captions_appear_in_human_report(
+    video_with_audio: Path, ready_config_path: Path, tmp_path: Path, capsys
+) -> None:
+    captions = tmp_path / "broken.vtt"
+    captions.write_text("WEBVTT\n\nnot a cue\n", encoding="utf-8")
+    exit_code = main(
+        [
+            *_base_args(video_with_audio, ready_config_path),
+            "--captions",
+            str(captions),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "NEEDS REVIEW" in captured.out
+    assert "Caption file could not be parsed cleanly" in captured.out
+    assert captured.err == ""

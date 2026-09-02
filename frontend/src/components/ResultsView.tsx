@@ -284,6 +284,9 @@ function evidenceEntries(finding: Finding): Array<[string, string]> {
   if (typeof details.maximum_recommended_length === "number") evidence.push(["Recommended maximum", `${details.maximum_recommended_length} characters`]);
   if (typeof details.actual_height === "number") evidence.push(["Actual height", `${details.actual_height}px`]);
   if (typeof details.minimum_height === "number") evidence.push(["Minimum height", `${details.minimum_height}px`]);
+  if (typeof details.maximum_uncovered_gap_seconds === "number") evidence.push(["Gap threshold", `${details.maximum_uncovered_gap_seconds.toFixed(2)} sec`]);
+  if (typeof details.boundary_tolerance_seconds === "number") evidence.push(["Boundary tolerance", `${details.boundary_tolerance_seconds.toFixed(2)} sec`]);
+  if (typeof details.media_duration_seconds === "number") evidence.push(["Media duration", `${details.media_duration_seconds.toFixed(2)} sec`]);
   return evidence;
 }
 

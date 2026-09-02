@@ -88,6 +88,29 @@ describe("preflight API client", () => {
       description: "Description",
     })).rejects.toBeInstanceOf(PreflightApiError);
   });
+
+  it("accepts the real caption summary contract", async () => {
+    const captionReport = {
+      ...needsReviewReport,
+      caption_summary: {
+        source_format: "vtt",
+        cue_count: 3,
+        first_caption_seconds: 0,
+        last_caption_seconds: 12,
+        covered_duration_seconds: 10.5,
+        timeline_coverage_percent: 87.5,
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(captionReport)));
+
+    const report = await scanPreflight({
+      video: new File(["video"], "video.mp4", { type: "video/mp4" }),
+      title: "Title",
+      description: "Description",
+    });
+
+    expect(report.caption_summary).toEqual(captionReport.caption_summary);
+  });
 });
 
 function jsonResponse(body: unknown, status = 200): Response {

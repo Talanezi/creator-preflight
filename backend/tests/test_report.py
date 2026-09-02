@@ -95,3 +95,30 @@ def test_unified_report_does_not_duplicate_missing_stream_finding(
         for finding in report.findings
         if finding.code == "AUDIO_STREAM_MISSING"
     ] == ["AUDIO_STREAM_MISSING"]
+
+
+def test_caption_findings_checks_summary_and_json_are_integrated(
+    video_with_audio: Path, tmp_path: Path
+) -> None:
+    captions = tmp_path / "large-gap.srt"
+    captions.write_text(
+        "1\n00:00:00,000 --> 00:00:00,100\nStart\n\n"
+        "2\n00:00:00,900 --> 00:00:01,000\nEnd\n",
+        encoding="utf-8",
+    )
+    config = _test_config()
+    config.rules.captions.maximum_uncovered_gap_seconds = 0.5
+    report = PreflightScanner(config=config).scan(
+        video_with_audio, _valid_package(captions_path=captions)
+    )
+
+    assert report.verdict is FindingStatus.NEEDS_REVIEW
+    assert "CAPTION_LARGE_GAP" in [finding.code for finding in report.findings]
+    assert report.checks_run_count == 20
+    assert report.passed_check_count == 19
+    assert report.warning_count == 1
+    assert report.caption_summary is not None
+    assert report.caption_summary.cue_count == 2
+    payload = json.loads(report.model_dump_json())
+    assert payload["caption_summary"]["timeline_coverage_percent"] <= 100
+    assert isinstance(payload["findings"][0]["timestamp_start_seconds"], float)
