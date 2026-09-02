@@ -1,4 +1,24 @@
-# Milestone 0 establishes the configuration schema version only.
-# Scanner rules and thresholds will be introduced with the milestone that
-# defines and implements their validated behavior.
 schema_version: 1
+
+# Milestone 2 detector thresholds. All durations are seconds. Audio level
+# values use decibels relative to full scale (dBFS); freeze noise is FFmpeg's
+# frame-difference threshold in dB. Ratio values must be greater than 0 and
+# no greater than 1.
+detectors:
+  black:
+    min_duration_seconds: 2.0
+    pixel_black_threshold: 0.10
+    picture_black_ratio: 0.98
+  silence:
+    min_duration_seconds: 2.0
+    noise_threshold_db: -50.0
+  freeze:
+    min_duration_seconds: 2.5
+    noise_threshold_db: -60.0
+  audio_peak:
+    warning_threshold_dbfs: -1.0
+  streams:
+    expect_video: true
+    expect_audio: true
+    missing_video_severity: error
+    missing_audio_severity: warning

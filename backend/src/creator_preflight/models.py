@@ -76,6 +76,15 @@ class MediaInspection(BaseModel):
     sample_rate: int | None = Field(default=None, ge=0)
 
 
+class AnomalyScanResult(BaseModel):
+    """Milestone 2 media metadata and detector findings, without a verdict."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    media: MediaInspection
+    findings: list[Finding]
+
+
 class MediaToolAvailability(BaseModel):
     """Availability of local media executables required by the project."""
 

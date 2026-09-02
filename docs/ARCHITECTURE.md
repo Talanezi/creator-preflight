@@ -2,9 +2,9 @@
 
 ## Current state
 
-Milestone 1 implements the typed media-inspection foundation. `creator_preflight.media` validates a local file, executes FFprobe safely, and normalizes primary/default stream metadata. `creator_preflight.models` contains the media response and shared Finding contract. A thin FastAPI adapter exposes temporary upload inspection at `POST /api/v1/media/inspect` and removes request files after use.
+Milestone 2 implements the typed media-inspection and deterministic anomaly-detection foundation. `creator_preflight.media` validates a local file, executes FFprobe safely, and normalizes primary/default stream metadata. `creator_preflight.detectors` contains independent FFmpeg black, silence, freeze, peak, and missing-stream checks. `creator_preflight.engine.MediaAnomalyScanner` inspects once and runs applicable detectors sequentially. `creator_preflight.config` validates the detector-only YAML thresholds. `creator_preflight.models` contains media, Finding, and anomaly-scan response contracts.
 
-There is still no scanning engine, anomaly detector, verdict aggregation, command-line interface, or product UI integration.
+A thin FastAPI adapter continues to expose only Milestone 1 temporary upload inspection at `POST /api/v1/media/inspect`; its behavior is unchanged. There is no verdict aggregation, creator package/rule engine, command-line interface, or product UI integration.
 
 ## Target shape
 
@@ -42,7 +42,9 @@ scripts/                 Repository automation scripts
 - `creator_preflight.api`: thin FastAPI adapter.
 - `creator_preflight.cli`: thin command-line adapter.
 
-The `models`, `media`, and `api` boundaries now exist. The other modules describe future ownership. Detector logic must not depend on FastAPI, React, or CLI formatting. FFmpeg/FFprobe execution must use argument arrays rather than a shell, enforce timeouts, capture diagnostics, and convert tool failures into typed application errors.
+The `engine`, `models`, `detectors`, `media`, and `api` boundaries now exist at the scope required through Milestone 2. The CLI boundary remains future work. Detector logic must not depend on FastAPI, React, or CLI formatting. FFmpeg/FFprobe execution must use argument arrays rather than a shell, enforce timeouts, capture diagnostics, and convert tool failures into typed application errors.
+
+Milestone 2 uses one FFmpeg pass per applicable analysis filter. This straightforward sequential design favors reliable parsing and independent testing over premature optimization. Detectors analyze the first selected video or audio stream, matching the primary-stream metadata convention from Milestone 1.
 
 ## Data and execution
 
