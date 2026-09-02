@@ -2,7 +2,7 @@
 
 ## Current milestone
 
-Milestone 7.5 — real optional local Whisper verification.
+Milestone 8 — reproducible demo and release package.
 
 Status: completed on 2026-09-02.
 
@@ -66,6 +66,10 @@ Status: completed on 2026-09-02.
 - Removing or replacing selected browser files clears the native file input value, allowing the same file to be selected again; object-URL cleanup remains verified.
 - Real optional `faster-whisper` transcription verified with the repository-defined `tiny.en` model on CPU/`int8`, using a temporary locally synthesized spoken-audio fixture and the existing production adapter.
 - Real Whisper speech intervals verified through the existing caption-coverage comparison, producing a timestamped `CAPTION_SPEECH_GAP` for deliberately uncovered speech.
+- Reusable deterministic demo-video generator shared by backend tests and the release workflow, preserving the known 2–5 second black, 3–6 second silence, 7–10 second non-black freeze, and audio-peak events.
+- Tracked copyright-free demo package with one deliberately overlong title, one valid description, and four valid SRT cues covering the complete 12-second timeline without caption findings.
+- One-command `scripts/run_demo.sh` workflow that generates the media and invokes the installed CLI with the tracked package and default YAML configuration.
+- Root README rewritten around the verified product, reproducible quick start, CLI/web demo, local-first architecture, deterministic checks, caption parsing, and optional verified local Whisper behavior.
 
 ## Not implemented
 
@@ -98,6 +102,10 @@ None known.
 - Analysis uses one non-streaming request, so the processing view is intentionally indeterminate and cannot identify the currently running backend detector.
 - No demo video is bundled. Click-to-seek depends on the browser being able to preview the selected media codec/container; report timestamps still render when preview playback is unavailable.
 - Timeline filtering is category-based only. Severity filtering and richer overlap lanes are intentionally deferred.
+
+## Known demo limitations
+
+- The primary demo audio is deterministic synthetic tone and silence rather than speech. Its SRT demonstrates real caption parsing and coverage validation, not semantic transcript accuracy. Optional local Whisper is verified separately and remains unnecessary for the primary demo.
 
 ## Validation
 
@@ -161,3 +169,9 @@ None known.
 - Package/caption audit — exercised empty/long titles, empty descriptions, valid and malformed URLs, absent/malformed/backward/duplicate/out-of-range chapters, absent/valid/malformed/empty/out-of-range/overlapping/oversized SRT and WebVTT through the complete test suite and real smoke paths.
 - CLI release audit — READY returned 0 with JSON-only stdout, findings returned 1 with JSON-only stdout, invalid configuration and missing FFprobe returned 2 with empty stdout and concise stderr. Missing FFmpeg produced the structured `media_tool_unavailable` application error.
 - Resource/safety audit — no request temporary directories remained after successful, zero-byte, or corrupt live API requests; FFmpeg/FFprobe calls use argument arrays, captured output, and timeouts with no `shell=True`; normal scans contain no external network call; optional Whisper remains disabled and `local_files_only` by default.
+- Milestone 8 `./scripts/run_demo.sh` from a clean generated-output state — succeeded; generated the 1280×720, 12-second synthetic demo and completed the installed CLI scan. The wrapper correctly treated the CLI's findings exit code 1 as a successful expected demo result.
+- Milestone 8 direct documented CLI JSON scan — valid JSON-only stdout and exit code 1; `NEEDS_REVIEW`, 20 checks run, 15 passed, 5 warnings, and 0 critical. Black detected at 2.0–5.0 seconds, silence at 3.0–6.000021, and the non-black freeze at 7.0–10.0; the redundant black-overlap freeze remained reconciled. Global findings were `AUDIO_PEAK_WARNING` and the deliberately produced `TITLE_LENGTH_RECOMMENDATION`.
+- Milestone 8 caption result — four valid SRT cues, first cue at 0.0 seconds, last cue ending at 12.0 seconds, 12.0 seconds merged coverage, 100% timeline coverage, and no caption findings. Measured report scan duration was approximately 0.442 seconds.
+- Milestone 8 `.venv/bin/python -m pytest backend/tests` — 103 passed, 0 failed, with 1 upstream Starlette `TestClient` deprecation warning. Backend tests generate anomaly fixtures through the same reusable implementation as the demo.
+- Milestone 8 `cd frontend && npm test` — 2 test files passed; 24 tests passed, 0 failed.
+- Milestone 8 `cd frontend && npm run build` — passed; TypeScript compiled cleanly and Vite 8.2.2 transformed 1,825 modules.

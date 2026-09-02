@@ -1,0 +1,15 @@
+1
+00:00:00,000 --> 00:00:03,000
+Opening synthetic test pattern.
+
+2
+00:00:03,000 --> 00:00:06,000
+Intentional demo interval for media review.
+
+3
+00:00:06,000 --> 00:00:09,000
+Synthetic motion and static-frame sequence.
+
+4
+00:00:09,000 --> 00:00:12,000
+Final synthetic test pattern and audio peak.

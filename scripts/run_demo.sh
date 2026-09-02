@@ -1,0 +1,29 @@
+#!/bin/sh
+set -u
+
+repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+python="$repository_root/.venv/bin/python"
+cli="$repository_root/.venv/bin/creator-preflight"
+video="$repository_root/demo/generated/creator-preflight-demo.mp4"
+title=$(tr -d '\r\n' < "$repository_root/demo/title.txt")
+
+if [ ! -x "$python" ] || [ ! -x "$cli" ]; then
+  echo "Run the backend installation steps in README.md first." >&2
+  exit 2
+fi
+
+"$python" "$repository_root/scripts/generate_demo_fixture.py" --output "$video" || exit $?
+
+"$cli" scan "$video" \
+  --title "$title" \
+  --description-file "$repository_root/demo/description.txt" \
+  --captions "$repository_root/demo/captions.srt" \
+  --config "$repository_root/config/preflight.default.yml"
+scan_status=$?
+
+if [ "$scan_status" -eq 1 ]; then
+  echo
+  echo "Demo completed successfully. Exit 1 means the scan found review items."
+  exit 0
+fi
+exit "$scan_status"

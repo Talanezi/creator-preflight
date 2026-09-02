@@ -1,32 +1,111 @@
 # Creator Preflight
 
-Creator Preflight is a local-first, pre-publish QA project for video creators. Its Python backend can inspect local media, run deterministic FFmpeg anomaly checks, validate creator publishing metadata and UTF-8 SRT/WebVTT captions, and produce an explainable `READY`, `NEEDS_REVIEW`, or `BLOCKED` report.
+**Lint your video before you publish it.**
 
-The unified scanner is available through the `creator-preflight` CLI, a FastAPI upload endpoint, and the React and TypeScript frontend. The browser uploads the selected media and publishing fields to the local FastAPI instance, renders the returned report, and keeps the selected file in a local preview for timestamp seeking. Backend upload copies are temporary and are removed after each request.
+Creator Preflight is a local-first quality check for finished creator videos. Give it a video, title, description, and optional captions; it returns an explainable `READY`, `NEEDS_REVIEW`, or `BLOCKED` report with exact timestamps for media issues.
 
-Local development requires FFmpeg and FFprobe on `PATH`. From the repository root, run the backend in one terminal:
+The web interface keeps the selected video available for local preview, so clicking a timestamped finding or timeline marker seeks directly to that moment. The same Python scanner powers the web API and CLI, and its detector and publishing rules are configurable in YAML.
+
+## What it checks
+
+- FFmpeg/FFprobe inspect media structure and detect sustained black video, long silence, frozen frames, suspicious global audio peaks, and missing streams.
+- Publishing-package rules check resolution, aspect ratio, title, description, URLs, chapters, and caption requirements.
+- UTF-8 SRT and WebVTT files are parsed for timing, ordering, range, overlap, empty text, gaps, and merged timeline coverage.
+- Optional `faster-whisper` can compare locally detected speech intervals with caption coverage. The `tiny.en` CPU/`int8` path has been smoke-tested; model acquisition may require an initial download, while inference runs locally.
+
+FFmpeg analysis is deterministic media processing, not AI. Optional Whisper is disabled by default and is not required for the primary demo or ordinary scans. Core scans use no paid API, platform account, API key, cloud inference, or external media.
+
+## Quick start
+
+Prerequisites:
+
+- Python 3.10 or newer
+- FFmpeg and FFprobe on `PATH`
+- Node.js and npm for the web interface
+
+Install the backend from the repository root:
 
 ```sh
+python3 -m venv .venv
 .venv/bin/python -m pip install './backend[dev]'
-.venv/bin/uvicorn creator_preflight.api:app --app-dir backend/src --reload --host 127.0.0.1 --port 8000
 ```
 
-Run the frontend in another terminal:
+Install the frontend:
 
 ```sh
 cd frontend
 npm install
+cd ..
+```
+
+## Reproducible demo
+
+The primary demo uses only generated media and tracked text fixtures. It does not require Whisper or a network connection after installation.
+
+Run the complete CLI demo with one command:
+
+```sh
+./scripts/run_demo.sh
+```
+
+This generates `demo/generated/creator-preflight-demo.mp4`, then scans it with the tracked title, description, captions, and default YAML configuration. Expected results are:
+
+- black video near 2–5 seconds;
+- silence near 3–6 seconds;
+- a non-black freeze near 7–10 seconds;
+- one global audio-peak warning;
+- one title-length recommendation;
+- four valid caption cues covering 100% of the 12-second timeline, with no caption findings.
+
+The expected verdict is `NEEDS_REVIEW` with 20 checks run, 15 passed, 5 warnings, and 0 critical findings. The wrapper exits successfully after this expected review result; the underlying CLI uses exit code `1` for a completed scan containing findings.
+
+To generate only the video:
+
+```sh
+.venv/bin/python scripts/generate_demo_fixture.py
+```
+
+To run the same scan directly:
+
+```sh
+.venv/bin/creator-preflight scan demo/generated/creator-preflight-demo.mp4 \
+  --title "$(tr -d '\r\n' < demo/title.txt)" \
+  --description-file demo/description.txt \
+  --captions demo/captions.srt \
+  --config config/preflight.default.yml
+```
+
+Add `--json` for machine-readable output. See [`demo/README.md`](demo/README.md) for the fixture package details.
+
+## Run the web app
+
+Start the local FastAPI backend in one terminal:
+
+```sh
+.venv/bin/uvicorn creator_preflight.api:app --app-dir backend/src --reload --host 127.0.0.1 --port 8000
+```
+
+Start the frontend in another:
+
+```sh
+cd frontend
 npm run dev -- --host 127.0.0.1
 ```
 
-Open `http://127.0.0.1:5173`. Vite proxies `/api` requests to the local backend on port 8000. Caption inspection parses timing and text structure, checks timeline bounds/order/overlaps/gaps, and calculates merged timeline coverage. Coverage is the percentage of the full video timeline inside at least one cue; it does not prove that every spoken word is captioned.
+Open `http://127.0.0.1:5173`, select the generated video and `demo/captions.srt`, then paste the tracked title and description. Vite proxies the scan request to the local backend. Upload copies are temporary and removed after each request.
 
-Optional local speech/caption comparison can be installed with:
+## Optional local speech analysis
+
+Install the existing optional dependency with:
 
 ```sh
 .venv/bin/python -m pip install './backend[transcription]'
 ```
 
-It remains disabled until `transcription.enabled` is set in YAML. The default `local_files_only: true` prevents automatic model downloads. No cloud speech API, API key, or external inference service is used.
+Enable transcription in a YAML configuration only when wanted. Defaults remain `enabled: false` and `local_files_only: true`, preventing an unexpected model download. No cloud speech API is used, but acquiring a model for the first time requires an explicit download or a compatible model already present locally.
 
-See `docs/SPEC.md`, `docs/ARCHITECTURE.md`, and `docs/STATUS.md` for the current project contract and status.
+## Architecture
+
+React sends a local multipart request to FastAPI; FastAPI and the CLI both invoke `PreflightScanner`; the scanner applies validated YAML rules, FFmpeg/FFprobe analysis, caption parsing, and optional local speech comparison. Reports use one typed schema with timestamped findings, explicit check counts, and a deterministic verdict.
+
+See [`docs/SPEC.md`](docs/SPEC.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and [`docs/STATUS.md`](docs/STATUS.md) for the product contract and verified status.

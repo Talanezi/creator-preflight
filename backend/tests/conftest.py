@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from creator_preflight.demo_fixture import generate_demo_video
+
 
 def _ffmpeg_executable() -> str:
     executable = shutil.which("ffmpeg")
@@ -64,44 +66,15 @@ def _generate_video(path: Path, *, with_audio: bool) -> Path:
 
 
 def _generate_anomaly_video(path: Path, *, size: str = "160x90") -> Path:
-    filter_graph = ";".join(
-        [
-            f"testsrc2=size={size}:rate=24:duration=2[v0]",
-            f"color=c=black:size={size}:rate=24:duration=3[v1]",
-            f"testsrc2=size={size}:rate=24:duration=2[v2]",
-            f"color=c=blue:size={size}:rate=24:duration=3[v3]",
-            f"testsrc2=size={size}:rate=24:duration=2[v4]",
-            "[v0][v1][v2][v3][v4]concat=n=5:v=1:a=0,format=yuv420p[video]",
-            "sine=frequency=440:sample_rate=48000:duration=3[a0]",
-            "anullsrc=r=48000:cl=mono,atrim=duration=3[a1]",
-            "sine=frequency=660:sample_rate=48000:duration=4[a2]",
-            "aevalsrc=0.99*sin(2*PI*880*t):s=48000:d=1[a3]",
-            "sine=frequency=550:sample_rate=48000:duration=1[a4]",
-            "[a0][a1][a2][a3][a4]concat=n=5:v=0:a=1[audio]",
-        ]
-    )
-    command = [
-        _ffmpeg_executable(),
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-filter_complex",
-        filter_graph,
-        "-map",
-        "[video]",
-        "-map",
-        "[audio]",
-        "-c:v",
-        "mpeg4",
-        "-pix_fmt",
-        "yuv420p",
-        "-c:a",
-        "aac",
-        str(path),
-    ]
-    _run_ffmpeg(command)
-    return path
+    try:
+        return generate_demo_video(
+            path,
+            size=size,
+            ffmpeg_binary=_ffmpeg_executable(),
+            timeout_seconds=30,
+        )
+    except RuntimeError as exc:
+        pytest.fail(str(exc))
 
 
 def _generate_silence_at_end_video(path: Path) -> Path:
