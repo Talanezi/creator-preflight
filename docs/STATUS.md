@@ -2,7 +2,7 @@
 
 ## Current milestone
 
-Milestone 3 — unified rule engine, publishing-package validation, report, and CLI.
+Milestone 4 — polished Creator Preflight frontend.
 
 Status: completed on 2026-09-01.
 
@@ -32,10 +32,17 @@ Status: completed on 2026-09-01.
 - Report-level reconciliation suppressing freezes at least 90% contained by a black interval while preserving other freezes.
 - Shared `PreflightScanner` used by the CLI and unified FastAPI upload endpoint.
 - Human and JSON CLI output with documented exit codes 0, 1, and 2.
+- Desktop-first React scan workflow with input, selected-file, named-stage processing, result, and runtime-error states.
+- TypeScript models matching the current backend `PreflightReport`, `Finding`, `MediaInspection`, and check-result schemas.
+- Typed NEEDS_REVIEW, READY, and BLOCKED mock reports kept outside UI components.
+- Professional report workspace with verdict/count summary, media metadata, local browser video preview, check coverage, evidence-focused findings, and category filters.
+- Proportional, timestamp-only findings timeline with hover/focus detail and shared click-to-seek behavior for markers and finding timecodes.
+- Responsive desktop, laptop, and narrow stacked layouts with keyboard focus styling and reduced-motion handling.
+- Reusable application/runtime error presentation that is visually and semantically separate from a successful BLOCKED scan.
 
 ## Not implemented
 
-- Product frontend and web scan workflow.
+- Real frontend-to-FastAPI integration; the Milestone 4 frontend uses typed mock reports and simulated named-stage progression only. Integration remains Milestone 5 work.
 - Caption file parsing, cue validation, or caption coverage analysis.
 - SRT/VTT parsing, transcription, or speech analysis.
 - Optional local `faster-whisper` support.
@@ -57,6 +64,13 @@ None known.
 - URL validation reports only obvious syntax errors in HTTP(S)/`www.`-style tokens. It does not resolve, request, classify, or establish the safety of a URL.
 - CLI exit code 1 represents a completed scan with either `NEEDS_REVIEW` or `BLOCKED`; it is not a runtime crash.
 
+## Known frontend limitations
+
+- No frontend request reaches FastAPI in Milestone 4. The state selector and short named-stage progression exist only to exercise the completed UI states during development and demos.
+- A selected local browser video is previewed with an object URL, but the displayed report remains typed mock data and may not describe that selected file.
+- No demo video is bundled. Click-to-seek remains available when the user selects a browser-playable local video; otherwise timestamps and timeline evidence render without playback.
+- Timeline filtering is category-based only. Severity filtering and richer overlap lanes are intentionally deferred.
+
 ## Validation
 
 - `.venv/bin/python -m pip install './backend[dev]'` — succeeded and installed the `creator-preflight` console entry point.
@@ -71,4 +85,9 @@ None known.
 - Actual installed CLI clean scan — emitted a `READY` JSON report with 14 passed checks and returned exit code 0.
 - Actual installed CLI missing-input scan — wrote a structured error to stderr, left JSON stdout empty, and returned exit code 2.
 - Unified FastAPI scan test returned a schema-valid `PreflightReport`; the Milestone 1 inspection endpoint tests remain passing.
-- No formatting, type-checking, or other static-check commands are configured in the repository.
+- `cd frontend && npm test` — 1 test file passed; 10 tests passed, 0 failed. Covered disabled scan action, verdict/count rendering, typed findings, category filtering, global findings, timestamp formatting, click-to-seek, READY, BLOCKED, runtime ERROR, and long-content resilience.
+- `cd frontend && npm run build` — passed; `tsc -b` compiled cleanly and Vite 8.2.2 produced the production bundle (1,825 modules transformed).
+- `cd frontend && npm run` — confirmed there is no separate lint or formatting command configured; TypeScript checking is part of the production build.
+- In-app browser visual QA at 1440px — inspected new scan, selected-video, named-stage processing, NEEDS_REVIEW, READY, BLOCKED, and application ERROR states using a locally generated 12-second synthetic video. No browser console warnings or errors were observed.
+- In-app browser responsive QA at 1024px and 430px — no document-level horizontal overflow; the 1024px results workspace retained its two-column inspection/evidence layout, and the narrow results and form layouts stacked into 398px-wide columns within the 430px viewport.
+- Browser interaction QA — Audio filtering reduced the rendered findings from 5 to 2; timeline markers were positioned at 16.6667%, 25%, and 58.3333% for the 2s, 3s, and 7s events in a 12-second report; marker and timecode actions sought the selected HTML5 video to 2s and 7s respectively; timeline hover revealed title plus interval; keyboard focus styling was visible.

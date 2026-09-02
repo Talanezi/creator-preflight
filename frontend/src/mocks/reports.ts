@@ -1,0 +1,199 @@
+import type { CheckResult, Finding, PreflightReport } from "../types/preflight";
+
+const media = {
+  duration_seconds: 12,
+  format_name: "mov,mp4,m4a,3gp,3g2,mj2",
+  file_size_bytes: 48_721_408,
+  has_video: true,
+  video_stream_count: 1,
+  video_codec: "h264",
+  width: 1920,
+  height: 1080,
+  display_aspect_ratio: "16:9",
+  frame_rate: 24,
+  pixel_format: "yuv420p",
+  has_audio: true,
+  audio_stream_count: 1,
+  audio_codec: "aac",
+  channel_count: 2,
+  sample_rate: 48_000,
+} as const;
+
+const checks = (
+  failures: Record<string, string[]> = {},
+): CheckResult[] =>
+  [
+    "media.video_stream",
+    "media.audio_stream",
+    "detector.black",
+    "detector.freeze",
+    "detector.silence",
+    "detector.audio_peak",
+    "video.minimum_width",
+    "video.minimum_height",
+    "video.aspect_ratio",
+    "title.required",
+    "title.recommended_length",
+    "description.required",
+    "description.url_syntax",
+    "chapters.syntax",
+  ].map((check_id) => ({
+    check_id,
+    passed: !(check_id in failures),
+    finding_codes: failures[check_id] ?? [],
+  }));
+
+const findings: Finding[] = [
+  {
+    code: "VIDEO_BLACK_SEGMENT",
+    severity: "warning",
+    status: "NEEDS_REVIEW",
+    message: "A sustained near-black video section may need review.",
+    source: "video.black",
+    timestamp_start_seconds: 2,
+    timestamp_end_seconds: 5,
+    details: {
+      category: "video",
+      title: "Sustained near-black section",
+      duration_seconds: 3,
+      minimum_duration_seconds: 2,
+      pixel_black_threshold: 0.1,
+      picture_black_ratio: 0.98,
+    },
+    suggestion: "Check whether this dark section is intentional and appropriately timed.",
+  },
+  {
+    code: "AUDIO_LONG_SILENCE",
+    severity: "warning",
+    status: "NEEDS_REVIEW",
+    message: "A sustained silent audio section may need review.",
+    source: "audio.silence",
+    timestamp_start_seconds: 3,
+    timestamp_end_seconds: 6.000021,
+    details: {
+      category: "audio",
+      title: "Long silent section",
+      duration_seconds: 3.000021,
+      minimum_duration_seconds: 2,
+      noise_threshold_db: -50,
+    },
+    suggestion: "Confirm that this silent section is intentional.",
+  },
+  {
+    code: "VIDEO_FREEZE_SEGMENT",
+    severity: "warning",
+    status: "NEEDS_REVIEW",
+    message: "A sustained static-frame section may need review.",
+    source: "video.freeze",
+    timestamp_start_seconds: 7,
+    timestamp_end_seconds: 10,
+    details: {
+      category: "video",
+      title: "Sustained static-frame section",
+      duration_seconds: 3,
+      minimum_duration_seconds: 2.5,
+      noise_threshold_db: -60,
+    },
+    suggestion: "Check whether this static section is an intentional still or title card.",
+  },
+  {
+    code: "AUDIO_PEAK_WARNING",
+    severity: "warning",
+    status: "NEEDS_REVIEW",
+    message: "The decoded audio peak is close to full scale and may merit review.",
+    source: "audio.peak",
+    timestamp_start_seconds: null,
+    timestamp_end_seconds: null,
+    details: {
+      category: "audio",
+      title: "Audio peak near full scale",
+      measured_peak_dbfs: 0,
+      warning_threshold_dbfs: -1,
+      measurement_scope: "global",
+    },
+    suggestion: "Review the loudest audio and confirm that no unwanted clipping is audible.",
+  },
+  {
+    code: "TITLE_LENGTH_RECOMMENDATION",
+    severity: "warning",
+    status: "NEEDS_REVIEW",
+    message: "The title exceeds the configured recommended length.",
+    source: "package.title",
+    timestamp_start_seconds: null,
+    timestamp_end_seconds: null,
+    details: {
+      category: "package",
+      title: "Title exceeds recommended length",
+      character_count: 108,
+      maximum_recommended_length: 100,
+    },
+    suggestion: "Consider shortening the title while preserving its meaning.",
+  },
+];
+
+export const needsReviewReport: PreflightReport = {
+  schema_version: "1.0",
+  verdict: "NEEDS_REVIEW",
+  media: { ...media },
+  findings,
+  checks: checks({
+    "detector.black": ["VIDEO_BLACK_SEGMENT"],
+    "detector.freeze": ["VIDEO_FREEZE_SEGMENT"],
+    "detector.silence": ["AUDIO_LONG_SILENCE"],
+    "detector.audio_peak": ["AUDIO_PEAK_WARNING"],
+    "title.recommended_length": ["TITLE_LENGTH_RECOMMENDATION"],
+  }),
+  checks_run_count: 14,
+  passed_check_count: 9,
+  warning_count: 5,
+  critical_count: 0,
+  configuration_profile: "default",
+  configuration_source: "typed defaults",
+  scan_duration_seconds: 0.159,
+};
+
+export const readyReport: PreflightReport = {
+  ...needsReviewReport,
+  verdict: "READY",
+  findings: [],
+  checks: checks(),
+  passed_check_count: 14,
+  warning_count: 0,
+  critical_count: 0,
+  scan_duration_seconds: 0.126,
+};
+
+export const blockedReport: PreflightReport = {
+  ...needsReviewReport,
+  verdict: "BLOCKED",
+  findings: [
+    {
+      code: "VIDEO_HEIGHT_BELOW_MINIMUM",
+      severity: "error",
+      status: "BLOCKED",
+      message: "The video height is below the configured minimum.",
+      source: "package.video",
+      timestamp_start_seconds: null,
+      timestamp_end_seconds: null,
+      details: {
+        category: "package",
+        title: "Video height below minimum",
+        actual_height: 540,
+        minimum_height: 720,
+      },
+      suggestion: "Export the video at or above the configured minimum height.",
+    },
+  ],
+  checks: checks({
+    "video.minimum_height": ["VIDEO_HEIGHT_BELOW_MINIMUM"],
+  }),
+  passed_check_count: 13,
+  warning_count: 0,
+  critical_count: 1,
+};
+
+export const runtimeError = {
+  title: "Analysis could not start",
+  message: "The local Creator Preflight instance could not access FFmpeg.",
+  detail: "Confirm FFmpeg is installed and available, then try the scan again.",
+};
