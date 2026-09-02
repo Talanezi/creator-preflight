@@ -2,7 +2,7 @@
 
 ## Current milestone
 
-Milestone 7 — release reliability hardening.
+Milestone 7.5 — real optional local Whisper verification.
 
 Status: completed on 2026-09-02.
 
@@ -64,6 +64,8 @@ Status: completed on 2026-09-02.
 - Configuration validation errors now identify the complete Creator Preflight configuration rather than misleadingly referring only to detector configuration.
 - Frontend caption guidance now reflects real timing, structure, and coverage inspection.
 - Removing or replacing selected browser files clears the native file input value, allowing the same file to be selected again; object-URL cleanup remains verified.
+- Real optional `faster-whisper` transcription verified with the repository-defined `tiny.en` model on CPU/`int8`, using a temporary locally synthesized spoken-audio fixture and the existing production adapter.
+- Real Whisper speech intervals verified through the existing caption-coverage comparison, producing a timestamped `CAPTION_SPEECH_GAP` for deliberately uncovered speech.
 
 ## Not implemented
 
@@ -143,7 +145,11 @@ None known.
 - Live FastAPI malformed-caption upload — HTTP 200 in approximately 0.446 seconds; report runtime 0.438 seconds; 15 checks, 10 passed, 6 warnings, 0 critical; returned structured caption findings and a zero-cue summary. No request temporary directories remained after valid or malformed uploads.
 - Speech/caption comparison tests cover fully covered speech, uncovered speech, partial coverage, boundary tolerance, no speech, no captions, adjacent uncovered-segment merging, optional-disabled behavior, unavailable dependency/model behavior, transcription failure, model reuse, and mocked successful scanner integration.
 - Actual optional-transcription unavailable smoke with `transcription.enabled: true` and no installed optional dependency — the core scan completed `NEEDS_REVIEW` with a `CAPTION_TRANSCRIPTION_UNAVAILABLE` finding and `reason_code: transcription_dependency_unavailable`.
-- A real faster-whisper model transcription was not performed: `faster-whisper` is not installed and no local model is cached in this environment. No dependency/model download was initiated solely for the smoke test. Automated tests remain network-free.
+- Milestone 7.5 `.venv/bin/python -m pip install './backend[transcription]'` — succeeded; installed `faster-whisper` 1.2.1 and its existing optional dependency set.
+- Milestone 7.5 real local transcription smoke — downloaded one `Systran/faster-whisper-tiny.en` model (approximately 75 MB) into a temporary cache, then reloaded it with `local_files_only: true`. A temporary 8-second mono WAV was created with macOS `say` from “Creator Preflight checks videos before publishing.” The existing `WhisperTranscriber` returned one segment at 0.0–7.0 seconds with text “Create or pre-flight checks videos before publishing.”
+- Milestone 7.5 real speech/caption comparison — applying one temporary caption cue at 0.0–1.0 seconds to that real speech segment produced `CAPTION_SPEECH_GAP` at 1.3–7.0 seconds after the configured 0.3-second boundary tolerance.
+- Milestone 7.5 `.venv/bin/python -m pytest backend/tests/test_transcription.py backend/tests/test_captions.py` — 21 passed, 0 failed. This includes a real baseline media scan proving disabled transcription does not invoke the optional adapter.
+- Milestone 7.5 default-configuration assertion — confirmed transcription remains disabled, downloads remain disabled with `local_files_only: true`, and defaults remain `tiny.en`, CPU, and `int8`. No production code, model weights, or generated speech fixture was added to the repository.
 - Deterministic SRT parsing averaged approximately 0.0205 ms per four-cue file over 1,000 local iterations; caption parsing added negligible time relative to FFmpeg analysis.
 - Milestone 7 `.venv/bin/python -m pytest backend/tests` — 103 passed, 0 failed, with 1 upstream Starlette `TestClient` deprecation warning. All earlier media, detector, rules, report, caption, CLI, and API behavior remains covered.
 - Milestone 7 `cd frontend && npm test` — 2 test files passed; 24 tests passed, 0 failed. The lifecycle coverage now proves a deliberately non-cooperative stale request cannot overwrite a newer result, a failed request can retry successfully, removed native file inputs are cleared, and the preview object URL is revoked.
