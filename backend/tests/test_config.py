@@ -47,7 +47,7 @@ def test_yaml_configuration_error_is_structured(tmp_path: Path) -> None:
     with pytest.raises(ConfigurationError) as captured:
         load_config(config_path)
 
-    assert captured.value.message == "Detector configuration is invalid."
+    assert captured.value.message == "Creator Preflight configuration is invalid."
     assert captured.value.errors is not None
     assert captured.value.errors[0]["location"] == "detectors.silence.noise_threshold_db"
 

@@ -222,7 +222,7 @@ def load_config(path: str | Path) -> PreflightConfig:
             for error in exc.errors()
         ]
         raise ConfigurationError(
-            "Detector configuration is invalid.", errors=errors
+            "Creator Preflight configuration is invalid.", errors=errors
         ) from exc
 
 

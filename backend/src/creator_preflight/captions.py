@@ -147,7 +147,7 @@ def evaluate_captions(
                 },
             )
         )
-    if not result.cues:
+    if not result.cues and not result.issues:
         parse_findings.append(
             _caption_finding(
                 "CAPTION_EMPTY",

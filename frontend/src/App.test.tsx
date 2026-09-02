@@ -30,6 +30,25 @@ describe("Creator Preflight frontend", () => {
   it("disables Run Preflight until a video is selected", () => {
     render(<App />);
     expect(screen.getByRole("button", { name: /run preflight/i })).toBeDisabled();
+    expect(screen.getByText(/timing, structure, and coverage checks/i)).toBeInTheDocument();
+    expect(screen.queryByText(/caption contents are not inspected/i)).not.toBeInTheDocument();
+  });
+
+  it("clears native file inputs when selections are removed", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const videoInput = screen.getByLabelText("Select video file") as HTMLInputElement;
+    const captionInput = screen.getByLabelText("Select optional captions file") as HTMLInputElement;
+    await user.upload(videoInput, new File(["video"], "same video.mp4", { type: "video/mp4" }));
+    await user.upload(captionInput, new File(["captions"], "same captions.srt", { type: "text/plain" }));
+
+    await user.click(screen.getByRole("button", { name: "Remove captions file" }));
+    await user.click(screen.getByRole("button", { name: "Remove selected video" }));
+
+    expect(videoInput.value).toBe("");
+    expect(captionInput.value).toBe("");
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:creator-preflight-local-preview");
+    expect(screen.getByRole("button", { name: /run preflight/i })).toBeDisabled();
   });
 
   it("renders the report verdict, counts, and typed findings", () => {
@@ -129,7 +148,9 @@ describe("Creator Preflight frontend", () => {
   });
 
   it("renders a backend/network failure through the application error state", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("network failed")));
+    vi.stubGlobal("fetch", vi.fn()
+      .mockRejectedValueOnce(new TypeError("network failed"))
+      .mockResolvedValueOnce(jsonResponse(readyReport)));
     const user = userEvent.setup();
     render(<App />);
 
@@ -139,27 +160,35 @@ describe("Creator Preflight frontend", () => {
     expect(screen.getByRole("heading", { name: "Creator Preflight is unavailable" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Return to new scan" }));
     expect(screen.getByTestId("selected-video")).toHaveTextContent("unreachable.mp4");
+    await user.click(screen.getByRole("button", { name: "Run Preflight" }));
+    expect(await screen.findByRole("heading", { name: "Ready" })).toBeInTheDocument();
   });
 
-  it("aborts an obsolete request without rendering a stale result or error", async () => {
+  it("aborts an obsolete request and ignores it even if it later resolves", async () => {
     let requestSignal: AbortSignal | undefined;
-    vi.stubGlobal("fetch", vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
-      requestSignal = init?.signal ?? undefined;
-      return new Promise<Response>((_resolve, reject) => {
-        requestSignal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
-      });
-    }));
+    let resolveObsolete: ((response: Response) => void) | undefined;
+    const fetchMock = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
+      if (fetchMock.mock.calls.length === 1) {
+        requestSignal = init?.signal ?? undefined;
+        return new Promise<Response>((resolve) => { resolveObsolete = resolve; });
+      }
+      return Promise.resolve(jsonResponse(readyReport));
+    });
+    vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     render(<App />);
 
     await selectVideoAndRun(user, "obsolete.mp4");
     expect(await screen.findByTestId("processing-state")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "New scan" }));
+    await selectVideoAndRun(user, "current.mp4");
+    expect(await screen.findByRole("heading", { name: "Ready" })).toBeInTheDocument();
+    resolveObsolete?.(jsonResponse(blockedReport));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Ready" })).toBeInTheDocument());
 
     expect(requestSignal?.aborted).toBe(true);
-    expect(screen.getByTestId("input-state")).toBeInTheDocument();
     expect(screen.queryByTestId("error-state")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("result-state")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Blocked" })).not.toBeInTheDocument();
   });
 
   it("replaces the first scan cleanly with a second real response", async () => {

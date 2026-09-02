@@ -6,6 +6,7 @@ from tempfile import TemporaryDirectory as RealTemporaryDirectory
 
 from creator_preflight.api import app
 from creator_preflight import api as api_module
+from creator_preflight.detectors import DetectorExecutionError
 
 client = TestClient(app)
 
@@ -155,11 +156,13 @@ def test_malformed_caption_upload_returns_report_and_cleans_temp_files(
     assert response.status_code == 200
     payload = response.json()
     assert "CAPTION_PARSE_ERROR" in [finding["code"] for finding in payload["findings"]]
-    assert "CAPTION_EMPTY" in [finding["code"] for finding in payload["findings"]]
+    assert "CAPTION_EMPTY" not in [finding["code"] for finding in payload["findings"]]
     assert created_paths and all(not path.exists() for path in created_paths)
 
 
-def test_caption_upload_size_limit_is_structured(video_with_audio: Path) -> None:
+def test_caption_upload_size_limit_matches_scanner_report_behavior(
+    video_with_audio: Path,
+) -> None:
     with video_with_audio.open("rb") as media_file:
         response = client.post(
             "/api/v1/preflight/scan",
@@ -170,5 +173,44 @@ def test_caption_upload_size_limit_is_structured(video_with_audio: Path) -> None
             data={"title": "Title", "description": "Description"},
         )
 
-    assert response.status_code == 413
-    assert response.json()["error"]["code"] == "caption_file_too_large"
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["verdict"] == "BLOCKED"
+    assert "CAPTION_PARSE_ERROR" in [finding["code"] for finding in payload["findings"]]
+    parse_finding = next(
+        finding
+        for finding in payload["findings"]
+        if finding["code"] == "CAPTION_PARSE_ERROR"
+    )
+    assert parse_finding["details"]["issues"][0]["message"] == (
+        "Caption file exceeds the configured size limit."
+    )
+
+
+def test_detector_timeout_uses_gateway_timeout_response(
+    video_with_audio: Path, monkeypatch
+) -> None:
+    def timed_out(*args, **kwargs):
+        del args, kwargs
+        raise DetectorExecutionError(
+            "detector_timeout",
+            "The black-frame detector timed out.",
+            details={"detector": "black", "timeout_seconds": 1},
+        )
+
+    monkeypatch.setattr(api_module.PreflightScanner, "scan", timed_out)
+    with video_with_audio.open("rb") as media_file:
+        response = client.post(
+            "/api/v1/preflight/scan",
+            files={"file": ("video.mp4", media_file, "video/mp4")},
+            data={"title": "Title", "description": "Description"},
+        )
+
+    assert response.status_code == 504
+    assert response.json() == {
+        "error": {
+            "code": "detector_timeout",
+            "message": "The black-frame detector timed out.",
+            "details": {"detector": "black", "timeout_seconds": 1},
+        }
+    }

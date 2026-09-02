@@ -20,12 +20,6 @@ from creator_preflight.models import (
 app = FastAPI(title="Creator Preflight", version="0.1.0")
 
 
-class CaptionUploadError(Exception):
-    def __init__(self, message: str):
-        super().__init__(message)
-        self.message = message
-
-
 @app.exception_handler(MediaInspectionError)
 async def media_inspection_error_handler(
     request: Request, exc: MediaInspectionError
@@ -48,7 +42,10 @@ async def detector_error_handler(
     request: Request, exc: DetectorExecutionError
 ) -> JSONResponse:
     del request
-    status_code = 503 if exc.code == "media_tool_unavailable" else 500
+    status_code = {
+        "media_tool_unavailable": 503,
+        "detector_timeout": 504,
+    }.get(exc.code, 500)
     body = ErrorResponse(
         error={"code": exc.code, "message": exc.message, "details": exc.details}
     )
@@ -70,25 +67,14 @@ async def configuration_error_handler(
     return JSONResponse(status_code=500, content=body.model_dump(mode="json"))
 
 
-@app.exception_handler(CaptionUploadError)
-async def caption_upload_error_handler(
-    request: Request, exc: CaptionUploadError
-) -> JSONResponse:
-    del request
-    body = ErrorResponse(
-        error={
-            "code": "caption_file_too_large",
-            "message": exc.message,
-            "details": None,
-        }
-    )
-    return JSONResponse(status_code=413, content=body.model_dump(mode="json"))
-
-
 @app.post(
     "/api/v1/media/inspect",
     response_model=MediaInspection,
-    responses={400: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
+    responses={
+        400: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+        504: {"model": ErrorResponse},
+    },
 )
 async def inspect_uploaded_media(file: UploadFile = File(...)) -> MediaInspection:
     """Temporarily store and inspect one uploaded local media file."""
@@ -109,8 +95,8 @@ async def inspect_uploaded_media(file: UploadFile = File(...)) -> MediaInspectio
     response_model=PreflightReport,
     responses={
         400: {"model": ErrorResponse},
-        413: {"model": ErrorResponse},
         503: {"model": ErrorResponse},
+        504: {"model": ErrorResponse},
     },
 )
 async def scan_uploaded_package(
@@ -132,14 +118,16 @@ async def scan_uploaded_package(
             if captions is not None:
                 caption_path = Path(temporary_directory) / "captions.upload"
                 written = 0
+                copy_limit = config.rules.captions.maximum_file_size_bytes + 1
                 with caption_path.open("wb") as destination:
                     while chunk := await captions.read(64 * 1024):
-                        written += len(chunk)
-                        if written > config.rules.captions.maximum_file_size_bytes:
-                            raise CaptionUploadError(
-                                "Caption upload exceeds the configured size limit."
-                            )
-                        destination.write(chunk)
+                        remaining = copy_limit - written
+                        if remaining <= 0:
+                            break
+                        destination.write(chunk[:remaining])
+                        written += min(len(chunk), remaining)
+                        if written >= copy_limit:
+                            break
             package = PublishingPackage(
                 title=title,
                 description=description,

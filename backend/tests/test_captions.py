@@ -53,9 +53,13 @@ def test_parse_valid_webvtt_with_identifier_settings_and_hour_timestamp() -> Non
 )
 def test_malformed_caption_syntax_is_reported(text: str) -> None:
     result = parse_caption_text(text)
+    evaluation = evaluate_captions(
+        result, media_duration_seconds=10, config=CaptionRuleConfig()
+    )
 
     assert not result.cues
     assert any(issue.kind == "parse" for issue in result.issues)
+    assert [finding.code for finding in evaluation.findings] == ["CAPTION_PARSE_ERROR"]
 
 
 def test_invalid_start_end_timing_produces_timing_finding() -> None:

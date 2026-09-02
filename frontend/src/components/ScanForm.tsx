@@ -57,14 +57,20 @@ export function ScanForm({ inputs, onChange, onRun }: ScanFormProps) {
                 className="icon-button"
                 type="button"
                 aria-label="Remove selected video"
-                onClick={() => onChange({ ...inputs, video: null })}
+                onClick={() => {
+                  if (videoInput.current) videoInput.current.value = "";
+                  onChange({ ...inputs, video: null });
+                }}
               >
                 <X aria-hidden="true" />
               </button>
               <button
                 className="secondary-button compact"
                 type="button"
-                onClick={() => videoInput.current?.click()}
+                onClick={() => {
+                  if (videoInput.current) videoInput.current.value = "";
+                  videoInput.current?.click();
+                }}
               >
                 <RefreshCw aria-hidden="true" /> Change
               </button>
@@ -132,7 +138,7 @@ export function ScanForm({ inputs, onChange, onRun }: ScanFormProps) {
           <div className="field-group captions-field">
             <div>
               <span className="field-label"><Captions aria-hidden="true" /> Captions <em>Optional</em></span>
-              <p>Add an SRT or VTT file. Caption contents are not inspected in this version.</p>
+              <p>Add an SRT or VTT file for timing, structure, and coverage checks.</p>
             </div>
             <input
               ref={captionInput}
@@ -151,7 +157,10 @@ export function ScanForm({ inputs, onChange, onRun }: ScanFormProps) {
                   type="button"
                   className="icon-button"
                   aria-label="Remove captions file"
-                  onClick={() => onChange({ ...inputs, captions: null })}
+                  onClick={() => {
+                    if (captionInput.current) captionInput.current.value = "";
+                    onChange({ ...inputs, captions: null });
+                  }}
                 >
                   <X aria-hidden="true" />
                 </button>

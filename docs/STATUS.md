@@ -2,7 +2,7 @@
 
 ## Current milestone
 
-Milestone 6 — caption-file inspection and optional local speech/caption coverage.
+Milestone 7 — release reliability hardening.
 
 Status: completed on 2026-09-02.
 
@@ -58,6 +58,12 @@ Status: completed on 2026-09-02.
 - Opt-in `faster-whisper` dependency group with disabled-by-default configuration, lazy imports/model loading, process-local model reuse, CPU defaults, and automatic downloads disabled by default.
 - Deterministic speech-versus-caption interval subtraction with boundary tolerance, adjacent-gap merging, minimum-duration filtering, and conservative `CAPTION_SPEECH_GAP` findings.
 - Graceful structured review findings when optional speech recognition dependencies, models, or transcription execution are unavailable; deterministic caption and core media checks continue.
+- Release audit corrected oversized-caption API behavior to match the shared scanner/CLI report path while retaining a bounded `maximum_file_size_bytes + 1` temporary copy.
+- Malformed caption files with no usable cues now produce one coherent parse finding instead of redundant parse-plus-empty warnings; genuinely empty files still produce `CAPTION_EMPTY`.
+- Detector timeouts now return structured HTTP 504 responses, consistent with bounded execution semantics.
+- Configuration validation errors now identify the complete Creator Preflight configuration rather than misleadingly referring only to detector configuration.
+- Frontend caption guidance now reflects real timing, structure, and coverage inspection.
+- Removing or replacing selected browser files clears the native file input value, allowing the same file to be selected again; object-URL cleanup remains verified.
 
 ## Not implemented
 
@@ -139,3 +145,13 @@ None known.
 - Actual optional-transcription unavailable smoke with `transcription.enabled: true` and no installed optional dependency — the core scan completed `NEEDS_REVIEW` with a `CAPTION_TRANSCRIPTION_UNAVAILABLE` finding and `reason_code: transcription_dependency_unavailable`.
 - A real faster-whisper model transcription was not performed: `faster-whisper` is not installed and no local model is cached in this environment. No dependency/model download was initiated solely for the smoke test. Automated tests remain network-free.
 - Deterministic SRT parsing averaged approximately 0.0205 ms per four-cue file over 1,000 local iterations; caption parsing added negligible time relative to FFmpeg analysis.
+- Milestone 7 `.venv/bin/python -m pytest backend/tests` — 103 passed, 0 failed, with 1 upstream Starlette `TestClient` deprecation warning. All earlier media, detector, rules, report, caption, CLI, and API behavior remains covered.
+- Milestone 7 `cd frontend && npm test` — 2 test files passed; 24 tests passed, 0 failed. The lifecycle coverage now proves a deliberately non-cooperative stale request cannot overwrite a newer result, a failed request can retry successfully, removed native file inputs are cleared, and the preview object URL is revoked.
+- Milestone 7 `cd frontend && npm run build` — passed; TypeScript compiled cleanly and Vite transformed 1,825 modules. `git diff --check` passed; no separate lint command is configured.
+- Fresh full anomaly scan with valid four-cue SRT and a 108-character title — `NEEDS_REVIEW`; 20 checks, 15 passed, 5 warnings, 0 critical; black 2.0–5.0, silence 3.0–6.000021, non-black freeze 7.0–10.0, no black-overlap freeze, 100% merged caption coverage, and one title-length package warning. Live API runtime was approximately 0.448 seconds and HTTP time 0.463 seconds.
+- Repeated identical anomaly scans produced the same ordered finding signature and internally consistent check/finding counts. Malformed captions now produce only `CAPTION_PARSE_ERROR`, with 15 checks, 14 passed, 1 warning, and no duplicate `CAPTION_EMPTY` on an otherwise clean fixture.
+- Fresh clean 1280×720 one-second audiovisual fixture — `READY`; 14 checks, 14 passed, 0 warnings, 0 critical; runtime approximately 0.207 seconds.
+- Media edge audit — live zero-byte and corrupt uploads returned structured HTTP 400 errors without tracebacks; a 0.08-second file with spaces and Unicode in its name scanned `READY`; a Unicode/spaced video without audio returned only `AUDIO_STREAM_MISSING` and `NEEDS_REVIEW`.
+- Package/caption audit — exercised empty/long titles, empty descriptions, valid and malformed URLs, absent/malformed/backward/duplicate/out-of-range chapters, absent/valid/malformed/empty/out-of-range/overlapping/oversized SRT and WebVTT through the complete test suite and real smoke paths.
+- CLI release audit — READY returned 0 with JSON-only stdout, findings returned 1 with JSON-only stdout, invalid configuration and missing FFprobe returned 2 with empty stdout and concise stderr. Missing FFmpeg produced the structured `media_tool_unavailable` application error.
+- Resource/safety audit — no request temporary directories remained after successful, zero-byte, or corrupt live API requests; FFmpeg/FFprobe calls use argument arrays, captured output, and timeouts with no `shell=True`; normal scans contain no external network call; optional Whisper remains disabled and `local_files_only` by default.
