@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# JavaScript
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# Coverage and reports
+.coverage
+htmlcov/
+coverage/
+
+# Local environment and editor files
+.env
+.env.*
+!.env.example
+.DS_Store
+.idea/
+.vscode/
+
+# Creator Preflight local inputs and outputs
+data/
+uploads/
+reports/
+

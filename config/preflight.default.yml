@@ -1,0 +1,4 @@
+# Milestone 0 establishes the configuration schema version only.
+# Scanner rules and thresholds will be introduced with the milestone that
+# defines and implements their validated behavior.
+schema_version: 1
