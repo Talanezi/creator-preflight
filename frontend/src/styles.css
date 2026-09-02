@@ -206,30 +206,16 @@ svg { flex: 0 0 auto; }
   background: var(--surface);
 }
 .processing-spinner { width: 24px; height: 24px; margin-bottom: 20px; color: var(--action); animation: spin 1s linear infinite; }
-.processing-file { margin: 10px 0 30px; overflow-wrap: anywhere; color: var(--muted); font-size: 14px; }
+.processing-file { margin: 10px 0 20px; overflow-wrap: anywhere; color: var(--muted); font-size: 14px; }
 .processing-file strong { color: var(--text); font-weight: 600; }
-.stage-list { margin: 0; padding: 0; list-style: none; }
-.stage-list li {
-  min-height: 58px;
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 9px 0;
-  color: #999d98;
+.processing-explanation {
+  margin: 0;
+  padding-top: 18px;
+  color: var(--muted);
   border-top: 1px solid var(--line);
+  font-size: 14px;
+  line-height: 1.55;
 }
-.stage-list li:last-child { border-bottom: 1px solid var(--line); }
-.stage-list li.is-active { color: var(--text); }
-.stage-list li.is-complete { color: var(--muted); }
-.stage-status { width: 20px; height: 20px; display: grid; place-items: center; color: #b1b5af; }
-.stage-status > span:not(.active-dot) { width: 7px; height: 7px; border: 1px solid #b9bdb7; border-radius: 50%; }
-.stage-status svg { width: 16px; color: var(--pass); }
-.active-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--action); }
-.stage-list strong, .stage-list small { display: block; }
-.stage-list strong { font-size: 14px; font-weight: 600; }
-.stage-list small { margin-top: 3px; color: var(--quiet); font-size: 12px; }
-.current-stage { color: var(--action); font-size: 12px; font-weight: 600; }
 
 .results { width: min(1540px, 100%); padding-top: 32px; }
 .result-overview {
@@ -439,7 +425,6 @@ svg { flex: 0 0 auto; }
   .finding-item { padding: 18px 16px; }
   .finding-title-row { align-items: flex-start; flex-direction: column; gap: 7px; }
   .timecode-button, .finding-category { align-self: flex-start; }
-  .current-stage { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

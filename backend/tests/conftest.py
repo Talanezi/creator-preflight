@@ -63,14 +63,14 @@ def _generate_video(path: Path, *, with_audio: bool) -> Path:
     return path
 
 
-def _generate_anomaly_video(path: Path) -> Path:
+def _generate_anomaly_video(path: Path, *, size: str = "160x90") -> Path:
     filter_graph = ";".join(
         [
-            "testsrc2=size=160x90:rate=24:duration=2[v0]",
-            "color=c=black:size=160x90:rate=24:duration=3[v1]",
-            "testsrc2=size=160x90:rate=24:duration=2[v2]",
-            "color=c=blue:size=160x90:rate=24:duration=3[v3]",
-            "testsrc2=size=160x90:rate=24:duration=2[v4]",
+            f"testsrc2=size={size}:rate=24:duration=2[v0]",
+            f"color=c=black:size={size}:rate=24:duration=3[v1]",
+            f"testsrc2=size={size}:rate=24:duration=2[v2]",
+            f"color=c=blue:size={size}:rate=24:duration=3[v3]",
+            f"testsrc2=size={size}:rate=24:duration=2[v4]",
             "[v0][v1][v2][v3][v4]concat=n=5:v=1:a=0,format=yuv420p[video]",
             "sine=frequency=440:sample_rate=48000:duration=3[a0]",
             "anullsrc=r=48000:cl=mono,atrim=duration=3[a1]",
@@ -158,6 +158,16 @@ def anomaly_video(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     return _generate_anomaly_video(
         tmp_path_factory.mktemp("media") / "known-anomalies.mp4"
+    )
+
+
+@pytest.fixture(scope="session")
+def api_anomaly_video(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Default-rule-sized variant for the real unified API contract."""
+
+    return _generate_anomaly_video(
+        tmp_path_factory.mktemp("media") / "api-known-anomalies.mp4",
+        size="1280x720",
     )
 
 

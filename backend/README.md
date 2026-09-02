@@ -36,3 +36,11 @@ API endpoints:
 
 - `POST /api/v1/media/inspect` preserves the Milestone 1 metadata-only upload behavior.
 - `POST /api/v1/preflight/scan` accepts multipart `file`, `title`, `description`, and optional `captions` fields and returns `PreflightReport`.
+
+Run the local API from the repository root:
+
+```sh
+.venv/bin/uvicorn creator_preflight.api:app --app-dir backend/src --reload --host 127.0.0.1 --port 8000
+```
+
+Uploaded media and caption handles are request-scoped. Media is copied into a temporary directory for scanning, then closed and removed after either a successful report or an error response.

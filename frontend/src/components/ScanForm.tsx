@@ -171,7 +171,6 @@ export function ScanForm({ inputs, onChange, onRun }: ScanFormProps) {
             type="submit"
             className="primary-button run-button"
             disabled={!inputs.video}
-            onClick={onRun}
           >
             <Play aria-hidden="true" fill="currentColor" /> Run Preflight
           </button>

@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from creator_preflight.api import app
@@ -66,3 +67,43 @@ def test_unified_api_scan_returns_preflight_report(video_with_audio: Path) -> No
     assert payload["media"]["width"] == 160
     assert payload["checks_run_count"] == len(payload["checks"])
     assert payload["critical_count"] == 2
+
+
+def test_unified_api_anomaly_report_matches_real_frontend_contract(
+    api_anomaly_video: Path,
+) -> None:
+    with api_anomaly_video.open("rb") as media_file:
+        response = client.post(
+            "/api/v1/preflight/scan",
+            files={"file": ("api-known-anomalies.mp4", media_file, "video/mp4")},
+            data={
+                "title": "T" * 108,
+                "description": "A real end-to-end Creator Preflight scan.",
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["schema_version"] == "1.0"
+    assert payload["verdict"] == "NEEDS_REVIEW"
+    assert payload["media"]["width"] == 1280
+    assert payload["media"]["height"] == 720
+    assert payload["checks_run_count"] == 14
+    assert payload["passed_check_count"] == 9
+    assert payload["warning_count"] == 5
+    assert payload["critical_count"] == 0
+
+    findings = {finding["code"]: finding for finding in payload["findings"]}
+    assert set(findings) == {
+        "VIDEO_BLACK_SEGMENT",
+        "AUDIO_LONG_SILENCE",
+        "VIDEO_FREEZE_SEGMENT",
+        "AUDIO_PEAK_WARNING",
+        "TITLE_LENGTH_RECOMMENDATION",
+    }
+    assert findings["VIDEO_BLACK_SEGMENT"]["timestamp_start_seconds"] == pytest.approx(2.0, abs=0.2)
+    assert findings["VIDEO_BLACK_SEGMENT"]["timestamp_end_seconds"] == pytest.approx(5.0, abs=0.2)
+    assert findings["AUDIO_LONG_SILENCE"]["timestamp_start_seconds"] == pytest.approx(3.0, abs=0.2)
+    assert findings["AUDIO_LONG_SILENCE"]["timestamp_end_seconds"] == pytest.approx(6.0, abs=0.2)
+    assert findings["VIDEO_FREEZE_SEGMENT"]["timestamp_start_seconds"] == pytest.approx(7.0, abs=0.2)
+    assert findings["VIDEO_FREEZE_SEGMENT"]["timestamp_end_seconds"] == pytest.approx(10.0, abs=0.2)

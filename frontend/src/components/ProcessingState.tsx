@@ -1,60 +1,19 @@
-import { useEffect, useState } from "react";
-import { Check, LoaderCircle } from "lucide-react";
-
-const stages = [
-  ["Inspecting media", "Reading streams, duration, and format metadata"],
-  ["Checking video", "Reviewing black and static-frame intervals"],
-  ["Checking audio", "Reviewing silence and decoded peak evidence"],
-  ["Checking publishing package", "Validating title, description, and profile rules"],
-] as const;
+import { LoaderCircle } from "lucide-react";
 
 interface ProcessingStateProps {
   filename: string;
-  onComplete: () => void;
 }
 
-export function ProcessingState({ filename, onComplete }: ProcessingStateProps) {
-  const [activeStage, setActiveStage] = useState(0);
-
-  useEffect(() => {
-    let completionTimer: number | undefined;
-    const timer = window.setInterval(() => {
-      setActiveStage((current) => {
-        if (current >= stages.length - 1) {
-          window.clearInterval(timer);
-          completionTimer = window.setTimeout(onComplete, 500);
-          return current;
-        }
-        return current + 1;
-      });
-    }, 700);
-    return () => {
-      window.clearInterval(timer);
-      if (completionTimer !== undefined) window.clearTimeout(completionTimer);
-    };
-  }, [onComplete]);
-
+export function ProcessingState({ filename }: ProcessingStateProps) {
   return (
     <main className="processing page-frame" data-testid="processing-state">
       <section className="processing-surface">
         <LoaderCircle className="processing-spinner" aria-hidden="true" />
         <h1>Running preflight checks</h1>
         <p className="processing-file" title={filename}>Checking <strong>{filename}</strong></p>
-        <ol className="stage-list" aria-live="polite">
-          {stages.map(([title, detail], index) => {
-            const complete = index < activeStage;
-            const active = index === activeStage;
-            return (
-              <li key={title} className={active ? "is-active" : complete ? "is-complete" : ""}>
-                <span className="stage-status">
-                  {complete ? <Check aria-hidden="true" /> : active ? <span className="active-dot" /> : <span />}
-                </span>
-                <div><strong>{title}</strong><small>{detail}</small></div>
-                {active && <span className="current-stage">In progress</span>}
-              </li>
-            );
-          })}
-        </ol>
+        <p className="processing-explanation">
+          Creator Preflight is inspecting the media and publishing package. The local backend returns the complete report when every check has finished.
+        </p>
       </section>
     </main>
   );

@@ -4,7 +4,7 @@
 
 Milestone 3 implements the unified Creator Preflight scanning path. `creator_preflight.media` validates and inspects local media; `creator_preflight.detectors` contains the independent Milestone 2 FFmpeg checks; `creator_preflight.rules` parses creator-style chapter lines and validates video/package metadata; and `creator_preflight.engine.PreflightScanner` coordinates one complete scan.
 
-The scanner reconciles redundant black-contained freeze findings, sorts final findings deterministically, records every executed check, derives counts, and computes `READY`, `NEEDS_REVIEW`, or `BLOCKED` directly from finding statuses. The report contains no opaque score. Both `creator_preflight.cli` and the FastAPI unified upload endpoint call this same scanner. The Milestone 1 inspection endpoint remains unchanged. The Milestone 4 React interface mirrors the current report contract with typed mock fixtures, but makes no API requests. There is no frontend/backend integration or caption-content parsing.
+The scanner reconciles redundant black-contained freeze findings, sorts final findings deterministically, records every executed check, derives counts, and computes `READY`, `NEEDS_REVIEW`, or `BLOCKED` directly from finding statuses. The report contains no opaque score. Both `creator_preflight.cli` and the FastAPI unified upload endpoint call this same scanner. The Milestone 1 inspection endpoint remains unchanged. The React interface now submits the real unified multipart request through a focused typed client and renders the returned report; typed mocks remain test fixtures only. Caption-content parsing is not implemented.
 
 ## Target shape
 
@@ -50,7 +50,7 @@ Final finding order is deterministic: blocking findings precede review findings,
 
 ## Data and execution
 
-The web client will send a local video, metadata, and optional captions to a FastAPI server running on the same machine. The server will keep processing local to that machine and return the normalized report. The application will not persist scans in a database. Any temporary request material must have a bounded lifetime and be removed after processing.
+The web client sends a browser-selected video, title, description, and optional captions to a FastAPI server running on the same machine. Vite proxies `/api` to FastAPI during local development. The server returns the normalized report in the same request, closes the uploads, and removes its temporary directory after success or failure. The selected browser file supplies the local preview; media is not downloaded back from the server. The application does not persist scans in a database.
 
 Configuration is loaded from YAML, validated before scanning, and passed explicitly into the engine. Defaults live in `config/preflight.default.yml`. Reports include a schema version so formats can evolve without silent ambiguity.
 

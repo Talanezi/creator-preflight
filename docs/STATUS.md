@@ -2,7 +2,7 @@
 
 ## Current milestone
 
-Milestone 4.1 — frontend visual and information-architecture redesign.
+Milestone 5 — real end-to-end frontend/backend integration.
 
 Status: completed on 2026-09-01.
 
@@ -45,10 +45,15 @@ Status: completed on 2026-09-01.
 - Finding evidence moved behind per-finding disclosures while titles, explanations, suggestions, and clickable timecodes remain immediately scannable.
 - New-scan form consolidated into one work surface with a direct page heading and no decorative workflow numbering or redundant micro-headings.
 - Development mock-state selector removed from visible product chrome while remaining available to automated tests and visual QA.
+- Focused typed frontend API client for the real `/api/v1/preflight/scan` multipart contract, including runtime response validation and safe structured error mapping.
+- Normal product scanning now uploads the selected video, title, line-preserving description, and optional captions to FastAPI and renders only the returned `PreflightReport`.
+- Honest indeterminate processing state with no simulated detector stages, completion marks, percentages, or automatic mock transition.
+- AbortController cancellation and request sequencing prevent reset, retry, or later scans from rendering obsolete results or intentional-abort errors.
+- Browser object-URL preview lifecycle retained with cleanup on replacement, reset, and unmount; real finding timecodes and timeline markers seek the selected local video.
+- Vite development proxy routes `/api` to the local FastAPI server on `127.0.0.1:8000`.
 
 ## Not implemented
 
-- Real frontend-to-FastAPI integration; the Milestone 4 frontend uses typed mock reports and simulated named-stage progression only. Integration remains Milestone 5 work.
 - Caption file parsing, cue validation, or caption coverage analysis.
 - SRT/VTT parsing, transcription, or speech analysis.
 - Optional local `faster-whisper` support.
@@ -72,9 +77,8 @@ None known.
 
 ## Known frontend limitations
 
-- No frontend request reaches FastAPI in Milestone 4.1. The visually hidden development state selector and short named-stage progression exist only to exercise the completed UI states during development and demos.
-- A selected local browser video is previewed with an object URL, but the displayed report remains typed mock data and may not describe that selected file.
-- No demo video is bundled. Click-to-seek remains available when the user selects a browser-playable local video; otherwise timestamps and timeline evidence render without playback.
+- Analysis uses one non-streaming request, so the processing view is intentionally indeterminate and cannot identify the currently running backend detector.
+- No demo video is bundled. Click-to-seek depends on the browser being able to preview the selected media codec/container; report timestamps still render when preview playback is unavailable.
 - Timeline filtering is category-based only. Severity filtering and richer overlap lanes are intentionally deferred.
 
 ## Validation
@@ -104,3 +108,13 @@ None known.
 - Milestone 4.1 in-app browser QA at 1440px, 1280px, 1024px, and 430px — input, selected-file, processing, NEEDS_REVIEW, READY, BLOCKED, and runtime ERROR states inspected at normal browser zoom. No document-level horizontal overflow or browser console warnings/errors were observed.
 - Milestone 4.1 results QA — video occupied approximately 63.6% of the desktop work surface at 1440px; metadata rendered as one line; the 14-check list remained collapsed by default; findings rendered as divider-separated review rows; the result and input columns stacked at 392px within the 430px viewport.
 - Milestone 4.1 interaction QA — category filtering reduced 5 findings to 2 Audio findings; timeline markers remained at 16.6667%, 25%, and 58.3333%; finding and marker actions sought to 2s and 7s; hover/focus detail remained visible; check and technical-evidence disclosures expanded correctly.
+- Milestone 5 `.venv/bin/python -m pytest backend/tests` — 70 passed, 0 failed, with 1 upstream Starlette `TestClient` deprecation warning; all Milestone 1–3 tests remain passing.
+- Milestone 5 `cd frontend && npm test` — 2 test files passed; 20 tests passed, 0 failed. Coverage includes exact multipart fields and optional captions, preserved description line breaks, runtime response validation, READY/NEEDS_REVIEW/BLOCKED handling, structured and network errors, intentional aborts, reset/retry, repeated scans, local seeking, and proof that production scanning has no mock timer/report dependency.
+- Milestone 5 `cd frontend && npm run build` — passed; `tsc -b` compiled cleanly and Vite 8.2.2 produced the production bundle. No separate lint or formatting script is configured.
+- Fresh 1280×720 deterministic anomaly fixture generated locally and submitted through the running FastAPI endpoint using multipart `file`, `title`, and `description` fields — HTTP 200 in approximately 0.384 seconds; report-recorded scan runtime approximately 0.366 seconds.
+- Real endpoint report — `NEEDS_REVIEW`; 14 checks run, 9 passed, 5 warnings, 0 critical. Black expected 2.0–5.0 → 2.0–5.0; silence expected 3.0–6.0 → 3.0–6.000021; non-black freeze expected 7.0–10.0 → 7.0–10.0. `TITLE_LENGTH_RECOMMENDATION` supplied the package warning.
+- Real endpoint reconciliation — the final report contained only the non-black 7.0–10.0 freeze; no redundant freeze appeared inside the black 2.0–5.0 interval. The response passed the frontend client's full runtime contract validation.
+- In-app browser real integration smoke — selected and uploaded the deterministic video, observed only the truthful indeterminate processing state, rendered the real 1280×720 9/5/0 report, and found no browser console warnings/errors.
+- Browser interaction smoke — real marker positions were 16.6667%, 25%, and 58.3333%; the black finding sought the local video to 2 seconds and the freeze timeline marker sought it to 7 seconds.
+- Browser lifecycle/error smoke — New scan removed the prior report; a real malformed upload rendered the structured invalid-media error rather than BLOCKED; Return preserved form data for retry; replacing the file and rescanning produced a fresh 10-passed/4-warning report without the prior title warning or stale error.
+- Backend temporary-upload cleanup check — no `creator-preflight-*` request directories remained after successful and invalid-media requests.
