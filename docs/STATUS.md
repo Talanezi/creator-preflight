@@ -2,7 +2,7 @@
 
 ## Current milestone
 
-Milestone 8 — reproducible demo and release package.
+Milestone 9 — final judge-mode release audit.
 
 Status: completed on 2026-09-02.
 
@@ -70,6 +70,8 @@ Status: completed on 2026-09-02.
 - Tracked copyright-free demo package with one deliberately overlong title, one valid description, and four valid SRT cues covering the complete 12-second timeline without caption findings.
 - One-command `scripts/run_demo.sh` workflow that generates the media and invokes the installed CLI with the tracked package and default YAML configuration.
 - Root README rewritten around the verified product, reproducible quick start, CLI/web demo, local-first architecture, deterministic checks, caption parsing, and optional verified local Whisper behavior.
+- Final judge-mode audit verified the README value proposition, installation commands, one-command demo, real browser workflow, cautious finding language, optional Whisper claims, and repository hygiene without requiring product or UI changes.
+- Real browser demo verified the generated media, tracked title/description/SRT package, live FastAPI response, rendered counts/findings, proportional timeline, exact click-to-seek behavior, clean reset, and absence of mock controls or browser console issues.
 
 ## Not implemented
 
@@ -175,3 +177,12 @@ None known.
 - Milestone 8 `.venv/bin/python -m pytest backend/tests` — 103 passed, 0 failed, with 1 upstream Starlette `TestClient` deprecation warning. Backend tests generate anomaly fixtures through the same reusable implementation as the demo.
 - Milestone 8 `cd frontend && npm test` — 2 test files passed; 24 tests passed, 0 failed.
 - Milestone 8 `cd frontend && npm run build` — passed; TypeScript compiled cleanly and Vite 8.2.2 transformed 1,825 modules.
+- Milestone 9 README setup audit — `python3 -m venv .venv`, `.venv/bin/python -m pip install './backend[dev]'`, `cd frontend && npm install`, the documented FastAPI command, and the documented Vite command all succeeded. The backend and frontend served on `127.0.0.1:8000` and `127.0.0.1:5173`; the real scan request returned HTTP 200.
+- Milestone 9 fresh `./scripts/run_demo.sh` — succeeded after moving the prior ignored output aside; regenerated the 1280×720 demo and reported `NEEDS_REVIEW`, 15 passed, 5 warnings, and 0 critical. Findings were black 2.0–5.0 seconds, silence 3.0–6.0 seconds, freeze 7.0–10.0 seconds, global audio peak, and title length.
+- Milestone 9 live browser scan — rendered the real `creator-preflight-demo.mp4` report with 15 passed, 5 warnings, and 0 critical; four valid caption cues introduced no caption findings. Finding actions sought the local preview to exactly 2, 3, and 7 seconds. Timeline markers were positioned at 16.6667%, 25%, and 58.3333%; neither global finding received a marker. New scan cleared the report, files, title, and description; no visible mock/development selector or browser console warning/error was present.
+- Milestone 9 visual audit at 100% browser zoom and 1280×720 viewport — no document-level horizontal overflow, clipped normal content, off-screen elements, broken timeline, development-only text, or dark-theme remnants were reproduced. No UI change was warranted.
+- Milestone 9 repository audit — no tracked generated media, Whisper weights/cache, Python/Node caches, build output, `.env`/credential file, secret-pattern value, stale screenshot, huge binary, `/Users/` path, debug logging, unfinished core TODO, or production mock import was found. Generated demo output and routine caches remained ignored.
+- Milestone 9 `.venv/bin/python -m pytest backend/tests` — 103 passed, 0 failed, with 1 upstream Starlette `TestClient` deprecation warning.
+- Milestone 9 `cd frontend && npm test` — 2 test files passed; 24 tests passed, 0 failed.
+- Milestone 9 `cd frontend && npm run build` — passed; TypeScript compiled cleanly and Vite 8.2.2 transformed 1,825 modules.
+- Milestone 9 `.venv/bin/python -m compileall -q backend/src scripts`, `sh -n scripts/run_demo.sh`, and `git diff --check` — all passed.
