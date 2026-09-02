@@ -2,7 +2,9 @@
 
 ## Current state
 
-Milestone 0 contains boundaries and build scaffolding only. There is no scanner, detector, API endpoint, command-line interface, media processing, or product UI yet.
+Milestone 1 implements the typed media-inspection foundation. `creator_preflight.media` validates a local file, executes FFprobe safely, and normalizes primary/default stream metadata. `creator_preflight.models` contains the media response and shared Finding contract. A thin FastAPI adapter exposes temporary upload inspection at `POST /api/v1/media/inspect` and removes request files after use.
+
+There is still no scanning engine, anomaly detector, verdict aggregation, command-line interface, or product UI integration.
 
 ## Target shape
 
@@ -40,7 +42,7 @@ scripts/                 Repository automation scripts
 - `creator_preflight.api`: thin FastAPI adapter.
 - `creator_preflight.cli`: thin command-line adapter.
 
-These modules describe future ownership, not modules implemented in Milestone 0. Detector logic must not depend on FastAPI, React, or CLI formatting. FFmpeg/FFprobe execution must use argument arrays rather than a shell, enforce timeouts, capture diagnostics, and convert tool failures into typed application errors.
+The `models`, `media`, and `api` boundaries now exist. The other modules describe future ownership. Detector logic must not depend on FastAPI, React, or CLI formatting. FFmpeg/FFprobe execution must use argument arrays rather than a shell, enforce timeouts, capture diagnostics, and convert tool failures into typed application errors.
 
 ## Data and execution
 
@@ -53,4 +55,3 @@ Configuration is loaded from YAML, validated before scanning, and passed explici
 The overall status order is `READY < NEEDS_REVIEW < BLOCKED`. Aggregation is deterministic and independent of presentation. The dependency direction is adapters → engine → domain models/media boundary; the domain layer never imports an adapter.
 
 The core runtime may depend on Python packages, Node build tooling for the frontend, and locally installed FFmpeg/FFprobe. It must not depend on network services at scan time. Optional local `faster-whisper` support belongs in a later, separately installable feature boundary.
-
