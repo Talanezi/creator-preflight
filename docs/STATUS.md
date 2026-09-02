@@ -2,7 +2,7 @@
 
 ## Current milestone
 
-Milestone 4 — polished Creator Preflight frontend.
+Milestone 4.1 — frontend visual and information-architecture redesign.
 
 Status: completed on 2026-09-01.
 
@@ -39,6 +39,12 @@ Status: completed on 2026-09-01.
 - Proportional, timestamp-only findings timeline with hover/focus detail and shared click-to-seek behavior for markers and finding timecodes.
 - Responsive desktop, laptop, and narrow stacked layouts with keyboard focus styling and reduced-motion handling.
 - Reusable application/runtime error presentation that is visually and semantically separate from a successful BLOCKED scan.
+- Light, neutral productivity-tool visual language with no gradients, glows, background grids, glass effects, or heavy shadows.
+- Results hierarchy centered on the checked filename, compact verdict/count summary, dominant video review surface, attached timeline, and divider-based findings list.
+- Technical media metadata consolidated into one supporting line; the primary check-coverage grid replaced by a native disclosure with simple outcome rows.
+- Finding evidence moved behind per-finding disclosures while titles, explanations, suggestions, and clickable timecodes remain immediately scannable.
+- New-scan form consolidated into one work surface with a direct page heading and no decorative workflow numbering or redundant micro-headings.
+- Development mock-state selector removed from visible product chrome while remaining available to automated tests and visual QA.
 
 ## Not implemented
 
@@ -66,7 +72,7 @@ None known.
 
 ## Known frontend limitations
 
-- No frontend request reaches FastAPI in Milestone 4. The state selector and short named-stage progression exist only to exercise the completed UI states during development and demos.
+- No frontend request reaches FastAPI in Milestone 4.1. The visually hidden development state selector and short named-stage progression exist only to exercise the completed UI states during development and demos.
 - A selected local browser video is previewed with an object URL, but the displayed report remains typed mock data and may not describe that selected file.
 - No demo video is bundled. Click-to-seek remains available when the user selects a browser-playable local video; otherwise timestamps and timeline evidence render without playback.
 - Timeline filtering is category-based only. Severity filtering and richer overlap lanes are intentionally deferred.
@@ -91,3 +97,10 @@ None known.
 - In-app browser visual QA at 1440px — inspected new scan, selected-video, named-stage processing, NEEDS_REVIEW, READY, BLOCKED, and application ERROR states using a locally generated 12-second synthetic video. No browser console warnings or errors were observed.
 - In-app browser responsive QA at 1024px and 430px — no document-level horizontal overflow; the 1024px results workspace retained its two-column inspection/evidence layout, and the narrow results and form layouts stacked into 398px-wide columns within the 430px viewport.
 - Browser interaction QA — Audio filtering reduced the rendered findings from 5 to 2; timeline markers were positioned at 16.6667%, 25%, and 58.3333% for the 2s, 3s, and 7s events in a 12-second report; marker and timecode actions sought the selected HTML5 video to 2s and 7s respectively; timeline hover revealed title plus interval; keyboard focus styling was visible.
+- Milestone 4.1 `cd frontend && npm test` — 1 test file passed; 11 tests passed, 0 failed. Existing behavioral coverage remains intact and now explicitly covers both finding-timecode and timeline-marker seek paths.
+- Milestone 4.1 `cd frontend && npm run build` — passed; `tsc -b` compiled cleanly and Vite 8.2.2 transformed 1,825 modules.
+- Milestone 4.1 `git diff --check` — passed. No separate lint or formatting command is configured.
+- Milestone 4.1 visual-language audit — source search found no gradients, glows, box shadows, backdrop filters, background grids, decorative eyebrow labels, or visible mock-preview labels.
+- Milestone 4.1 in-app browser QA at 1440px, 1280px, 1024px, and 430px — input, selected-file, processing, NEEDS_REVIEW, READY, BLOCKED, and runtime ERROR states inspected at normal browser zoom. No document-level horizontal overflow or browser console warnings/errors were observed.
+- Milestone 4.1 results QA — video occupied approximately 63.6% of the desktop work surface at 1440px; metadata rendered as one line; the 14-check list remained collapsed by default; findings rendered as divider-separated review rows; the result and input columns stacked at 392px within the 430px viewport.
+- Milestone 4.1 interaction QA — category filtering reduced 5 findings to 2 Audio findings; timeline markers remained at 16.6667%, 25%, and 58.3333%; finding and marker actions sought to 2s and 7s; hover/focus detail remained visible; check and technical-evidence disclosures expanded correctly.

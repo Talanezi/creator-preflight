@@ -36,14 +36,10 @@ export function ProcessingState({ filename, onComplete }: ProcessingStateProps) 
 
   return (
     <main className="processing page-frame" data-testid="processing-state">
-      <section className="processing-card panel">
-        <div className="processing-visual" aria-hidden="true">
-          <div className="scan-line" />
-          <LoaderCircle className="spinner" />
-        </div>
-        <p className="eyebrow">Local analysis</p>
+      <section className="processing-surface">
+        <LoaderCircle className="processing-spinner" aria-hidden="true" />
         <h1>Running preflight checks</h1>
-        <p className="processing-file" title={filename}>{filename}</p>
+        <p className="processing-file" title={filename}>Checking <strong>{filename}</strong></p>
         <ol className="stage-list" aria-live="polite">
           {stages.map(([title, detail], index) => {
             const complete = index < activeStage;
@@ -51,15 +47,14 @@ export function ProcessingState({ filename, onComplete }: ProcessingStateProps) 
             return (
               <li key={title} className={active ? "is-active" : complete ? "is-complete" : ""}>
                 <span className="stage-status">
-                  {complete ? <Check aria-hidden="true" /> : <span>{index + 1}</span>}
+                  {complete ? <Check aria-hidden="true" /> : active ? <span className="active-dot" /> : <span />}
                 </span>
                 <div><strong>{title}</strong><small>{detail}</small></div>
-                {active && <LoaderCircle className="stage-spinner" aria-label="In progress" />}
+                {active && <span className="current-stage">In progress</span>}
               </li>
             );
           })}
         </ol>
-        <p className="processing-note">Stages are shown without an estimated percentage.</p>
       </section>
     </main>
   );

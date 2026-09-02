@@ -10,16 +10,15 @@ interface ErrorStateProps {
 export function ErrorState({ title, message, detail, onRetry }: ErrorStateProps) {
   return (
     <main className="error-page page-frame" data-testid="error-state">
-      <section className="error-card panel">
+      <section className="error-surface">
         <span className="error-icon"><AlertTriangle aria-hidden="true" /></span>
-        <p className="eyebrow">Application error</p>
         <h1>{title}</h1>
         <p>{message}</p>
-        {detail && <div className="error-detail">{detail}</div>}
+        {detail && <p className="error-detail">{detail}</p>}
         <button className="primary-button" type="button" onClick={onRetry}>
           <RotateCcw aria-hidden="true" /> Return to new scan
         </button>
-        <small>This is a runtime failure, not a BLOCKED preflight verdict.</small>
+        <small>The scan did not complete. This is different from a blocked publishing result.</small>
       </section>
     </main>
   );

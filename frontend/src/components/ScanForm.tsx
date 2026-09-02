@@ -1,12 +1,5 @@
 import { useRef, useState } from "react";
-import {
-  Captions,
-  FileVideo2,
-  Play,
-  RefreshCw,
-  UploadCloud,
-  X,
-} from "lucide-react";
+import { Captions, FileVideo2, Play, RefreshCw, Upload, X } from "lucide-react";
 import { formatBytes } from "../utils/format";
 
 export interface ScanInputs {
@@ -35,31 +28,14 @@ export function ScanForm({ inputs, onChange, onRun }: ScanFormProps) {
 
   return (
     <main className="new-scan page-frame" data-testid="input-state">
-      <section className="workspace-intro">
-        <div>
-          <p className="eyebrow">New scan</p>
-          <h1>Preflight a publishing package</h1>
-          <p>
-            Review media health, audio, metadata, and publishing requirements
-            before your upload leaves the edit bay.
-          </p>
-        </div>
-        <div className="workflow-key" aria-label="Workflow summary">
-          <span><strong>01</strong> Add package</span>
-          <span><strong>02</strong> Run checks</span>
-          <span><strong>03</strong> Review evidence</span>
-        </div>
-      </section>
+      <header className="page-intro">
+        <h1>Check a finished video</h1>
+        <p>Add the package you plan to publish. Creator Preflight reviews the media and its publishing details together.</p>
+      </header>
 
-      <div className="scan-layout">
-        <section className="panel upload-panel" aria-labelledby="video-heading">
-          <div className="section-heading">
-            <span className="section-index">01</span>
-            <div>
-              <h2 id="video-heading">Video input</h2>
-              <p>The finished export you intend to publish.</p>
-            </div>
-          </div>
+      <form className="scan-surface" onSubmit={(event) => { event.preventDefault(); if (inputs.video) onRun(); }}>
+        <section className="video-input-section" aria-labelledby="video-heading">
+          <h2 id="video-heading">Video</h2>
 
           <input
             ref={videoInput}
@@ -72,10 +48,10 @@ export function ScanForm({ inputs, onChange, onRun }: ScanFormProps) {
 
           {inputs.video ? (
             <div className="selected-file" data-testid="selected-video">
-              <div className="file-icon"><FileVideo2 aria-hidden="true" /></div>
+              <FileVideo2 className="file-icon" aria-hidden="true" />
               <div className="file-copy">
                 <strong title={inputs.video.name}>{inputs.video.name}</strong>
-                <span>{formatBytes(inputs.video.size)} · Local preview available</span>
+                <span>{formatBytes(inputs.video.size)} · ready to preview locally</span>
               </div>
               <button
                 className="icon-button"
@@ -110,22 +86,16 @@ export function ScanForm({ inputs, onChange, onRun }: ScanFormProps) {
                 selectVideo(event.dataTransfer.files[0]);
               }}
             >
-              <span className="drop-icon"><UploadCloud aria-hidden="true" /></span>
-              <strong>Drop your finished video here</strong>
-              <span>or click to choose a local file</span>
-              <small>MP4, MOV, MKV, or WebM · analyzed by your local instance</small>
+              <Upload className="drop-icon" aria-hidden="true" />
+              <strong>Choose a video or drop it here</strong>
+              <span>MP4, MOV, MKV, or WebM</span>
+              <small>The file stays on this Creator Preflight instance.</small>
             </button>
           )}
         </section>
 
-        <section className="panel package-panel" aria-labelledby="package-heading">
-          <div className="section-heading">
-            <span className="section-index">02</span>
-            <div>
-              <h2 id="package-heading">Publishing package</h2>
-              <p>Metadata that will travel with the video.</p>
-            </div>
-          </div>
+        <section className="package-section" aria-labelledby="package-heading">
+          <h2 id="package-heading">Publishing details</h2>
 
           <div className="field-group">
             <div className="field-label-row">
@@ -140,7 +110,7 @@ export function ScanForm({ inputs, onChange, onRun }: ScanFormProps) {
               placeholder="The title viewers will see"
               onChange={(event) => onChange({ ...inputs, title: event.target.value })}
             />
-            <p className="field-hint">Recommendation only; final rules come from your scan profile.</p>
+            <p className="field-hint">The configured scan profile determines the final limit.</p>
           </div>
 
           <div className="field-group">
@@ -161,8 +131,8 @@ export function ScanForm({ inputs, onChange, onRun }: ScanFormProps) {
 
           <div className="field-group captions-field">
             <div>
-              <span className="field-label"><Captions aria-hidden="true" /> Captions</span>
-              <p>Optional · presence only in the current product milestone</p>
+              <span className="field-label"><Captions aria-hidden="true" /> Captions <em>Optional</em></span>
+              <p>Add an SRT or VTT file. Caption contents are not inspected in this version.</p>
             </div>
             <input
               ref={captionInput}
@@ -198,7 +168,7 @@ export function ScanForm({ inputs, onChange, onRun }: ScanFormProps) {
           </div>
 
           <button
-            type="button"
+            type="submit"
             className="primary-button run-button"
             disabled={!inputs.video}
             onClick={onRun}
@@ -206,7 +176,7 @@ export function ScanForm({ inputs, onChange, onRun }: ScanFormProps) {
             <Play aria-hidden="true" fill="currentColor" /> Run Preflight
           </button>
         </section>
-      </div>
+      </form>
     </main>
   );
 }

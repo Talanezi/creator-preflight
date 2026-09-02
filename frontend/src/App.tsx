@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { HardDrive, ScanLine } from "lucide-react";
+import { HardDrive } from "lucide-react";
 import { ErrorState } from "./components/ErrorState";
 import { ProcessingState } from "./components/ProcessingState";
 import { ResultsView } from "./components/ResultsView";
@@ -49,17 +49,14 @@ export function App({ initialView = "input" }: AppProps) {
   return (
     <div className="app-shell">
       <header className="app-header">
-        <div className="brand-lockup">
-          <span className="brand-mark"><ScanLine aria-hidden="true" /></span>
-          <div>
-            <strong>Creator Preflight</strong>
-            <span>Lint your video before you publish it.</span>
-          </div>
-        </div>
+        <strong className="brand-name">Creator Preflight</strong>
         <div className="header-actions">
           <span className="local-indicator"><HardDrive aria-hidden="true" /> Local analysis</span>
-          <label className="preview-control">
-            <span>Mock preview</span>
+          {view !== "input" && (
+            <button className="header-action" type="button" onClick={reset}>New scan</button>
+          )}
+          <label className="development-state-picker visually-hidden">
+            Preview application state
             <select
               aria-label="Preview application state"
               value={view}
@@ -86,14 +83,13 @@ export function App({ initialView = "input" }: AppProps) {
         />
       )}
       {(view === "review" || view === "ready" || view === "blocked") && (
-        <ResultsView report={report} previewUrl={previewUrl} onNewScan={reset} />
+        <ResultsView
+          report={report}
+          filename={inputs.video?.name ?? "creator-export-final.mp4"}
+          previewUrl={previewUrl}
+        />
       )}
       {view === "error" && <ErrorState {...runtimeError} onRetry={reset} />}
-
-      <footer className="app-footer">
-        <span>UI preview · no backend request is made in Milestone 4</span>
-        <span>Processed by your local Creator Preflight instance when connected</span>
-      </footer>
     </div>
   );
 }
