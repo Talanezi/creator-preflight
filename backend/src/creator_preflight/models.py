@@ -190,12 +190,33 @@ class ViewerPassSummary(BaseModel):
     issue_count: int = Field(default=0, ge=0, le=10)
 
 
+class ClaimReviewStatus(str, Enum):
+    DISABLED = "disabled"
+    NO_CLAIMS = "no_claims"
+    CLEAN = "clean"
+    NEEDS_REVIEW = "needs_review"
+    UNAVAILABLE = "unavailable"
+
+
+class ClaimReviewSummary(BaseModel):
+    """Compact, cautious result from optional grounded claim review."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: ClaimReviewStatus
+    claims_checked: int = Field(default=0, ge=0, le=3)
+    supported_count: int = Field(default=0, ge=0, le=3)
+    conflict_count: int = Field(default=0, ge=0, le=3)
+    insufficient_evidence_count: int = Field(default=0, ge=0, le=3)
+    explanation: str | None = Field(default=None, max_length=1000)
+
+
 class PreflightReport(BaseModel):
     """Unified, explainable Creator Preflight scan report."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "1.3"
+    schema_version: str = "1.4"
     verdict: FindingStatus
     media: MediaInspection
     findings: list[Finding]
@@ -210,6 +231,7 @@ class PreflightReport(BaseModel):
     ai_review: AIReviewSummary
     promise_check: PromiseCheckSummary
     viewer_pass: ViewerPassSummary
+    claim_review: ClaimReviewSummary
     scan_duration_seconds: float = Field(ge=0)
 
 

@@ -121,6 +121,24 @@ class StructuredAIReviewResult(Generic[StructuredModel]):
     cleanup_succeeded: bool
 
 
+@dataclass(frozen=True)
+class ProviderCitation:
+    """One URL supplied by provider grounding metadata, never model JSON."""
+
+    title: str
+    uri: str
+    support_text: str | None = None
+
+
+@dataclass(frozen=True)
+class GroundedStructuredAIReviewResult(Generic[StructuredModel]):
+    """Validated grounded output and provider-owned citation metadata."""
+
+    output: StructuredModel
+    citations: tuple[ProviderCitation, ...]
+    generation_seconds: float
+
+
 class GeminiReviewSession:
     """One bounded Gemini upload reused by task-specific structured reviews."""
 
@@ -238,6 +256,61 @@ class GeminiReviewSession:
                     unavailable=True,
                 ) from exc
             raise AIReviewError("ai_generation_failed", "Gemini generation could not be completed.") from exc
+
+    def generate_grounded_structured(
+        self,
+        *,
+        prompt: str,
+        response_model: type[StructuredModel],
+        validate_output: Callable[[StructuredModel], StructuredModel] | None = None,
+    ) -> GroundedStructuredAIReviewResult[StructuredModel]:
+        """Run one text-only structured request grounded with Google Search."""
+
+        if self.client is None or self.started_at is None:
+            raise AIReviewError("ai_session_not_started", "Gemini review session is not active.")
+        generation_started = self.adapter._clock()
+        try:
+            types = _load_google_genai_types()
+            response = self.client.models.generate_content(
+                model=self.config.model,
+                contents=prompt,
+                config={
+                    "tools": [types.Tool(google_search=types.GoogleSearch())],
+                    "response_mime_type": "application/json",
+                    "response_json_schema": response_model.model_json_schema(),
+                    "thinking_config": {"thinking_level": "LOW"},
+                    "max_output_tokens": 3072,
+                    "automatic_function_calling": {"disable": True},
+                    "http_options": {
+                        "timeout": max(1, round(self.config.timeout_seconds * 1000))
+                    },
+                },
+            )
+            generation_seconds = self.adapter._clock() - generation_started
+            output = _validate_structured_output(getattr(response, "text", None), response_model)
+            if validate_output is not None:
+                output = validate_output(output)
+            citations = _provider_citations(response)
+            self.generation_count += 1
+            return GroundedStructuredAIReviewResult(
+                output=output,
+                citations=citations,
+                generation_seconds=generation_seconds,
+            )
+        except AIReviewError:
+            raise
+        except Exception as exc:
+            if _looks_like_timeout(exc):
+                raise AIReviewError("ai_provider_timeout", "Gemini grounded verification timed out.") from exc
+            if _looks_like_quota_error(exc):
+                raise AIReviewError(
+                    "ai_provider_quota_exhausted",
+                    "Gemini review is temporarily unavailable because the provider quota was reached.",
+                    unavailable=True,
+                ) from exc
+            raise AIReviewError(
+                "ai_grounding_failed", "Gemini grounded verification could not be completed."
+            ) from exc
 
     def close(self) -> None:
         if self.client is None:
@@ -443,6 +516,41 @@ def _looks_like_timeout(exc: Exception) -> bool:
 def _looks_like_quota_error(exc: Exception) -> bool:
     message = str(exc).upper()
     return "429" in message or "RESOURCE_EXHAUSTED" in message or "RATE LIMIT" in message
+
+
+def _provider_citations(response: object) -> tuple[ProviderCitation, ...]:
+    """Extract only HTTP(S) citations returned in grounding metadata."""
+
+    candidates = getattr(response, "candidates", None) or []
+    seen: set[str] = set()
+    citations: list[ProviderCitation] = []
+    for candidate in candidates:
+        metadata = getattr(candidate, "grounding_metadata", None)
+        chunks = getattr(metadata, "grounding_chunks", None) or []
+        supports = getattr(metadata, "grounding_supports", None) or []
+        support_text_by_index: dict[int, list[str]] = {}
+        for support in supports:
+            segment = getattr(support, "segment", None)
+            support_text = getattr(segment, "text", None)
+            if not isinstance(support_text, str) or not support_text.strip():
+                continue
+            for index in getattr(support, "grounding_chunk_indices", None) or []:
+                if isinstance(index, int):
+                    support_text_by_index.setdefault(index, []).append(support_text.strip())
+        for index, chunk in enumerate(chunks):
+            web = getattr(chunk, "web", None)
+            uri = getattr(web, "uri", None)
+            title = getattr(web, "title", None) or getattr(web, "domain", None)
+            if not isinstance(uri, str) or not uri.startswith(("https://", "http://")):
+                continue
+            if uri in seen:
+                continue
+            seen.add(uri)
+            citations.append(ProviderCitation(
+                title=str(title or "Source")[:200], uri=uri[:2048],
+                support_text=" ".join(support_text_by_index.get(index, []))[:1000] or None,
+            ))
+    return tuple(citations)
 
 
 def _load_google_genai():

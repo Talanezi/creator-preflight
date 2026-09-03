@@ -14,6 +14,7 @@ The web interface keeps the selected video available for local preview, so click
 - Optional `faster-whisper` can compare locally detected speech intervals with caption coverage. The `tiny.en` CPU/`int8` path has been smoke-tested; model acquisition may require an initial download, while inference runs locally.
 - Optional Gemini Promise Check compares the finished video with its title and optional thumbnail, reports when the advertised subject begins being substantively addressed, and surfaces only evidence-backed alignment issues.
 - Optional Gemini Final Viewer Pass reviews the finished video's visuals and spoken content for high-confidence internal inconsistencies: narration/graphic conflicts, visible production placeholders, and conservatively gated accidental repetition.
+- Optional Gemini Claim Review selects at most three important public factual claims and checks them together with Google Search grounding. Only sufficiently evidenced possible conflicts become review findings, with provider citations.
 
 FFmpeg analysis is deterministic media processing, not AI. Optional Whisper is disabled by default and is not required for the primary demo or ordinary scans. Core deterministic scans use no paid API, platform account, API key, cloud inference, or external media. Optional Gemini video-review infrastructure is separately opt-in and sends the selected video to Google only when explicitly enabled.
 
@@ -116,9 +117,19 @@ Install the isolated provider dependency with:
 
 Set `GEMINI_API_KEY` only in the backend process environment, then enable `ai_review.enabled` in a YAML configuration. The default configuration keeps AI review disabled. For the web API, point the backend to that file with `CREATOR_PREFLIGHT_CONFIG`; the CLI already accepts it through `--config`. When enabled, Creator Preflight uploads the video once through Google's Gemini Files API, includes an optional validated PNG/JPEG thumbnail in the same review request, validates native schema-constrained output locally, and attempts to delete the remote file afterward. The key is never accepted from the browser or stored in YAML.
 
-Promise Check infers the viewer promise, identifies the approximate first substantive delivery timestamp, and reviews title/video and optional thumbnail/video alignment. Its default application policy warns when substantive delivery begins after 20 seconds and normalizes only specific supported issues with confidence of at least 0.70 plus concrete evidence. It does not score engagement, predict performance, fact-check claims, or generate titles/thumbnails. AI evidence cannot block a scan, and deterministic scanning still completes if the optional SDK, key, or provider is unavailable.
+Promise Check infers the viewer promise, identifies the approximate first substantive delivery timestamp, and reviews title/video and optional thumbnail/video alignment. Its default application policy warns when substantive delivery begins after 20 seconds and normalizes only specific supported issues with confidence of at least 0.70 plus concrete evidence. It does not score engagement, predict performance, or generate titles/thumbnails. AI evidence cannot block a scan, and deterministic scanning still completes if the optional SDK, key, or provider is unavailable.
 
 Final Viewer Pass uses a separate validated task schema and reports only supported internal inconsistencies with concrete evidence at confidence 0.75 or higher. It does not decide which conflicting statement is factually correct and does not offer generic pacing, hook, or creative advice. Promise Check and Final Viewer Pass make separate structured requests while reusing one Gemini video upload per scan.
+
+Claim Review is independently disabled by default. When enabled, it extracts at most three important externally verifiable claims from that same uploaded video, then verifies all selected claims in one text-only request with Google Search grounding. Source links come only from provider citation metadata; missing citation evidence becomes `insufficient_evidence`, not a warning. Claim Review is a cautious pre-publish aid, not certification that an entire video is factual.
+
+On macOS, generate the narrated controlled Claim Review fixture with:
+
+```sh
+.venv/bin/python scripts/generate_claim_fixture.py
+```
+
+The ignored 36-second fixture contains one supported historical date, one deliberately conflicting date, and one subjective statement that should not be selected.
 
 Generate the small, copyright-free Promise Check validation package with:
 
@@ -140,6 +151,6 @@ The `google-genai` 2.22.0, `gemini-3.7-flash` path has been smoke-tested with an
 
 ## Architecture
 
-React sends a local multipart request to FastAPI; FastAPI and the CLI both invoke `PreflightScanner`; the scanner applies validated YAML rules, FFmpeg/FFprobe analysis, caption parsing, optional local speech comparison, and explicitly enabled Gemini Promise Check and Final Viewer Pass. Provider-specific Gemini file lifecycle code remains isolated behind task-specific validated boundaries. Reports use one typed schema with timestamped findings, positive/abstaining AI summaries, explicit check counts, provider provenance, and a deterministic verdict.
+React sends a local multipart request to FastAPI; FastAPI and the CLI both invoke `PreflightScanner`; the scanner applies validated YAML rules, FFmpeg/FFprobe analysis, caption parsing, optional local speech comparison, and explicitly enabled Gemini Promise Check, Final Viewer Pass, and Claim Review. Provider-specific Gemini file lifecycle and grounding code remains isolated behind task-specific validated boundaries. Reports use one typed schema with timestamped findings, positive/abstaining AI summaries, explicit check counts, provider provenance, and a deterministic verdict.
 
 See [`docs/SPEC.md`](docs/SPEC.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and [`docs/STATUS.md`](docs/STATUS.md) for the product contract and verified status.

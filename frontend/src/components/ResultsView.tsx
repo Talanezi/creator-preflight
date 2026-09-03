@@ -41,6 +41,7 @@ const categoryIcons = {
   captions: ScanLine,
   ai: ScanLine,
   editorial: ScanLine,
+  claims: ScanLine,
 };
 
 export function ResultsView({
@@ -91,6 +92,7 @@ export function ResultsView({
 
       <PromiseSummary report={report} />
       <ViewerPassSummaryView report={report} />
+      <ClaimReviewSummaryView report={report} />
 
       <div className="review-workspace">
         <section className="media-review" aria-label="Video review">
@@ -165,6 +167,29 @@ export function ResultsView({
         </section>
       </div>
     </main>
+  );
+}
+
+function ClaimReviewSummaryView({ report }: { report: PreflightReport }) {
+  const claims = report.claim_review;
+  const labels = {
+    disabled: "Not run",
+    no_claims: "No significant claims found",
+    clean: `${claims.claims_checked} checked · ${claims.supported_count} supported`,
+    needs_review: `${claims.claims_checked} checked · ${claims.conflict_count} to review`,
+    unavailable: "Unavailable",
+  } as const;
+  return (
+    <section className={`promise-summary claims-${claims.status}`} aria-labelledby="claim-review-title">
+      <div>
+        <h2 id="claim-review-title">Claim Review</h2>
+        <strong>{labels[claims.status]}</strong>
+      </div>
+      {claims.insufficient_evidence_count > 0 && (
+        <p>{claims.insufficient_evidence_count} lacked enough grounded evidence.</p>
+      )}
+      {claims.explanation && claims.status === "unavailable" && <p>{claims.explanation}</p>}
+    </section>
   );
 }
 
@@ -307,8 +332,30 @@ function FindingItem({ finding, onSeek }: { finding: Finding; onSeek: (finding: 
         <p className="finding-message">{finding.message}</p>
         {finding.suggestion && <p className="finding-suggestion">{finding.suggestion}</p>}
         <EvidenceDetails finding={finding} />
+        <FindingSources finding={finding} />
       </div>
     </article>
+  );
+}
+
+function FindingSources({ finding }: { finding: Finding }) {
+  const raw = finding.details?.sources;
+  if (!Array.isArray(raw)) return null;
+  const sources = raw.filter((item): item is { title: string; url: string } => {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) return false;
+    const source = item as Record<string, unknown>;
+    return typeof source.title === "string" && typeof source.url === "string"
+      && (source.url.startsWith("https://") || source.url.startsWith("http://"));
+  });
+  if (!sources.length) return null;
+  return (
+    <div className="finding-sources" aria-label="Grounded sources">
+      {sources.map((source) => (
+        <a key={source.url} href={source.url} target="_blank" rel="noreferrer noopener">
+          {source.title}
+        </a>
+      ))}
+    </div>
   );
 }
 

@@ -34,6 +34,8 @@ def test_default_detector_configuration_loads() -> None:
     assert config.ai_review.promise_check.minimum_issue_confidence == 0.70
     assert config.ai_review.viewer_pass.enabled is True
     assert config.ai_review.viewer_pass.minimum_issue_confidence == 0.75
+    assert config.ai_review.claim_review.enabled is False
+    assert config.ai_review.claim_review.maximum_claims == 3
     assert config.rules.video.minimum_width == 1280
     assert config.rules.title.maximum_recommended_length == 100
     assert config.rules.description.validate_urls is True

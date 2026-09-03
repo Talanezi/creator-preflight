@@ -281,6 +281,48 @@ describe("Creator Preflight frontend", () => {
     expect(video.currentTime).toBe(4);
   });
 
+  it("renders grounded Claim Review sources and seeks the claim timestamp", async () => {
+    const user = userEvent.setup();
+    const report: PreflightReport = {
+      ...needsReviewReport,
+      findings: [{
+        code: "AI_CLAIM_POSSIBLE_CONFLICT",
+        severity: "warning",
+        status: "NEEDS_REVIEW",
+        message: "The video states 1968; grounded evidence may conflict with that date.",
+        source: "ai.gemini.claims",
+        timestamp_start_seconds: 14,
+        timestamp_end_seconds: null,
+        details: {
+          category: "claims",
+          title: "Possible factual conflict",
+          confidence: 0.98,
+          sources: [{ title: "NASA", url: "https://www.nasa.gov/history/apollo-11" }],
+        },
+        suggestion: "Review the claim against the cited source.",
+      }],
+      warning_count: 1,
+      claim_review: {
+        status: "needs_review",
+        claims_checked: 2,
+        supported_count: 1,
+        conflict_count: 1,
+        insufficient_evidence_count: 0,
+        explanation: "Only grounded conflicts become findings.",
+      },
+    };
+    render(<ResultsView report={report} previewUrl="blob:claims-preview" />);
+    const video = screen.getByTestId("preview-video") as HTMLVideoElement;
+    expect(screen.getByRole("heading", { name: "Claim Review" })).toBeInTheDocument();
+    expect(screen.getByText("2 checked · 1 to review")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Claims 1" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "NASA" })).toHaveAttribute(
+      "href", "https://www.nasa.gov/history/apollo-11",
+    );
+    await user.click(screen.getByRole("button", { name: "00:14.00" }));
+    expect(video.currentTime).toBe(14);
+  });
+
   it.each([
     [readyReport, "Ready"],
     [needsReviewReport, "Needs review"],

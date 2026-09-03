@@ -2,7 +2,7 @@
 
 ## Current state
 
-`creator_preflight.media` validates and inspects local media; `creator_preflight.detectors` contains the independent FFmpeg checks; `creator_preflight.rules` parses creator-style chapter lines and validates video/package metadata; `creator_preflight.captions` parses and validates SRT/WebVTT content and performs interval coverage comparisons; `creator_preflight.ai_review` isolates an optional reusable Gemini upload session, structured generation, validation, and cleanup; `creator_preflight.promise_check` and `creator_preflight.viewer_pass` own independent task-specific editorial schemas and policies; and `creator_preflight.engine.PreflightScanner` coordinates one complete scan.
+`creator_preflight.media` validates and inspects local media; `creator_preflight.detectors` contains the independent FFmpeg checks; `creator_preflight.rules` parses creator-style chapter lines and validates video/package metadata; `creator_preflight.captions` parses and validates SRT/WebVTT content and performs interval coverage comparisons; `creator_preflight.ai_review` isolates an optional reusable Gemini upload session, structured generation, grounded citation extraction, validation, and cleanup; `creator_preflight.promise_check`, `creator_preflight.viewer_pass`, and `creator_preflight.claim_review` own independent task-specific schemas and policies; and `creator_preflight.engine.PreflightScanner` coordinates one complete scan.
 
 The scanner reconciles redundant black-contained freeze findings, sorts final findings deterministically, records every executed check, derives counts, and computes `READY`, `NEEDS_REVIEW`, or `BLOCKED` directly from finding statuses. Caption checks are added only when a caption file is supplied, while the speech-coverage check is added only when optional transcription is enabled and audio exists. The report contains no opaque score. Both `creator_preflight.cli` and the FastAPI unified upload endpoint call this same scanner. The React interface submits the unified multipart request and renders caption findings through its existing category, timeline, and seek behavior.
 
@@ -24,7 +24,8 @@ When explicitly enabled, the engine also calls one optional provider boundary:
 ```text
 PreflightScanner ── shared Gemini upload session ── Files/API adapter
        │                 ├── Promise Check trust boundary
-       │                 └── Final Viewer Pass trust boundary
+       │                 ├── Final Viewer Pass trust boundary
+       │                 └── Claim extraction → one grounded verification request
        └── deterministic       └── validated summaries + review-only findings
 ```
 
@@ -57,6 +58,8 @@ scripts/                 Repository automation scripts
 - `creator_preflight.ai_review`: optional Gemini SDK adapter, bounded remote file lifecycle, native structured-output validation, and observation normalization boundary.
 - `creator_preflight.promise_check`: injection-resistant task prompt, typed Promise result, timestamp validation, confidence/evidence gating, and narrow editorial finding normalization.
 - `creator_preflight.viewer_pass`: injection-resistant final-viewer prompt, typed internal-consistency result, timestamp validation, conservative confidence/evidence gating, and narrow review-only finding normalization.
+- `creator_preflight.claim_review`: max-three claim extraction, one batched Google Search-grounded verification, provider-metadata citation normalization, confidence gating, and cautious review-only conflict findings.
+- `creator_preflight.claim_fixture`: small local narrated control with supported, conflicting, and subjective statements.
 - `creator_preflight.viewer_fixture`: small local narrated controls for live clean/conflict/placeholder/repetition validation.
 - `creator_preflight.thumbnails`: bounded content-based PNG/JPEG validation for optional temporary thumbnail inputs.
 
@@ -78,4 +81,4 @@ The overall status order is `READY < NEEDS_REVIEW < BLOCKED`. Aggregation is det
 
 The core runtime depends on Python packages, Node build tooling for the frontend, and locally installed FFmpeg/FFprobe. Deterministic scans do not depend on network services at scan time. `faster-whisper` is isolated in the `transcription` optional dependency group, imported lazily, and disabled by default. The default `local_files_only` setting prevents an implicit model download; loaded models are reused within the backend process.
 
-Gemini support is isolated in the `ai` optional dependency group and disabled by default. When enabled, the backend reads `GEMINI_API_KEY`, uploads the video once, polls provider processing within a configured bound, performs independent native schema-constrained Promise and Viewer generation calls against the same remote file, and attempts deletion only after all enabled tasks finish. Promise may include one validated thumbnail inline. The 20-second/0.70 Promise policy and 0.75 Viewer confidence-plus-type-specific-evidence policy are application-controlled. One task failure cannot erase another task's valid result; remote identifiers and secrets are not exposed; all AI findings are review-only and cannot produce `BLOCKED`.
+Gemini support is isolated in the `ai` optional dependency group and disabled by default. When enabled, the backend reads `GEMINI_API_KEY`, uploads the video once, polls provider processing within a configured bound, and runs independently enabled tasks against the same remote file before one cleanup. Claim Review adds one schema-constrained video extraction and one text-only schema-constrained Google Search request for the whole selected batch; displayed URLs are accepted only from provider grounding metadata. Claim Review itself remains separately disabled by default. One task failure cannot erase another task's valid result; remote identifiers and secrets are not exposed; all AI findings are review-only and cannot produce `BLOCKED`.

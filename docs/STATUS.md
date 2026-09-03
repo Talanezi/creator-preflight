@@ -2,9 +2,9 @@
 
 ## Current milestone
 
-Milestone 13 — AI Final Viewer Pass.
+Milestone 14 — Grounded Claim Review.
 
-Status: completed on 2026-09-03 after a real full production scan successfully reused one Gemini video upload for Promise Check and Final Viewer Pass, validated both task results in one report, and explicitly cleaned up the remote file.
+Status: completed on 2026-09-03 after the controlled live Gemini scan extracted two factual claims from the real video, verified both in one Google Search-grounded request, preserved real provider citation metadata, emitted one cautious timestamped conflict finding, reused one upload across all AI tasks, and cleaned up the remote file.
 
 ## Completed
 
@@ -93,6 +93,10 @@ Status: completed on 2026-09-03 after a real full production scan successfully r
 - Viewer findings require at least 0.75 confidence plus concrete evidence; narration conflicts additionally require spoken and visible evidence, and repetition requires both original and repeated intervals. All remain review-only.
 - The React results view renders a restrained Viewer Pass summary and existing editorial findings/timeline/click-to-seek behavior without a separate AI interface.
 - Local narrated 45-second clean and 48-second problematic Viewer fixtures isolate semantic review from deterministic black/silence/freeze/audio warnings.
+- Optional, independently disabled Grounded Claim Review extracts at most three high-confidence public factual claims from the shared Gemini video upload and verifies them together in one text-only Google Search-grounded request.
+- Claim Review trusts only provider grounding metadata for source links; model-authored URLs are excluded, missing attributable citations become insufficient evidence, and only sufficiently supported possible conflicts become timestamped review-only findings.
+- Typed report schema 1.4 includes a compact Claim Review summary for disabled, no-claims, clean, needs-review, and unavailable outcomes; the frontend renders safe source links and uses existing timeline/click-to-seek behavior.
+- A generated 36-second narrated control contains the supported Eiffel Tower 1889 claim, deliberately conflicting Apollo 11 1968 claim, and a subjective spacecraft opinion intended to be ignored.
 
 ## Not implemented
 
@@ -122,6 +126,7 @@ None known.
 - Gemini review is optional cloud processing: when enabled, the selected video leaves the local Creator Preflight instance and is sent to Google. Provider observations are probabilistic review evidence, not deterministic truth.
 - Promise Check is probabilistic editorial evidence. It does not predict retention/virality, fact-check claims, generate package assets, or perform a generic final-viewer review.
 - Final Viewer Pass is probabilistic internal-consistency evidence. It does not fact-check, identify which conflicting value is true, certify an error-free video, or provide generic creative criticism. Accidental repetition is inherently less reliable than explicit text/audio conflicts.
+- Claim Review checks only a few selected public claims and depends on Google Search coverage and citation attribution. It does not certify the whole video, search private facts, or treat missing/ambiguous evidence as support.
 - The adapter attempts explicit remote deletion, but provider cleanup failure cannot override a successful review; Gemini Files API uploads otherwise have the provider's temporary retention lifecycle.
 
 ## Known frontend limitations
@@ -261,3 +266,12 @@ None known.
 - Milestone 13 deterministic release regression — clean narrated control `READY` (14 passed, 0 warnings); missing description `NEEDS_REVIEW` (13 passed, 1 warning, 0 critical); anomaly demo retained 15 passed, 5 warnings, black 2–5s, silence 3–6s, freeze 7–10s, calibrated audio, and title warning.
 - Milestone 13 final live full-production acceptance — the 48-second problematic control completed in approximately 13.616 seconds with `NEEDS_REVIEW`, 16 checks run, 15 passed, 3 warnings, and 0 critical. One Gemini Files upload (2.229s) was shared by two generation calls: Promise Check (3.350s) and Final Viewer Pass (4.938s). Provider processing used two polls totaling approximately 0.234s; one explicit remote deletion completed in 0.436s.
 - The combined live report contained both validated task results. Promise Check was `aligned` at 0.72 confidence, inferred “An explanation and update on the launch and status of the Aurora Project,” and found substantive delivery at 0.0s. Final Viewer Pass returned three review-only findings: narration `2021` versus visible `2020` at 0.0–4.0s (0.85), visible `TODO REPLACE THIS CHART` at 12.0–24.0s (0.88), and duplicated closing segment at 36.0–48.0s versus original 24.0–36.0s (0.87). AI provenance reported `succeeded`, cleanup true, and no AI result produced `BLOCKED`.
+- Milestone 14 targeted backend validation — 58 passed, 0 failed, with 1 upstream Starlette TestClient deprecation warning. Complete backend suite — 166 passed, 0 failed, with the same warning.
+- Milestone 14 frontend suite — 2 files and 31 tests passed, 0 failed. TypeScript compilation and Vite production build passed with 1,825 modules transformed.
+- Milestone 14 fixture generation — 36.016-second, 1,609,053-byte local narrated fixture generated successfully; it remains ignored and untracked.
+- Milestone 14 first live attempt after network authorization — Gemini extracted Eiffel Tower/1889 and Apollo 11/1968, ignored the subjective spacecraft statement, and returned correct grounded conclusions, but the response included no usable citation metadata. The trust boundary correctly downgraded both results to `insufficient_evidence` and emitted no warning.
+- Structured JSON grounding can omit usable per-field support spans even when request-level citation chunks exist. The citation normalizer now retains only those real provider chunks as batched evidence in that case; it still never trusts model-authored URLs, and no citations still means `insufficient_evidence`. A focused regression test covers this behavior.
+- Milestone 14 corrective live acceptance — the 36.016-second/1,609,053-byte fixture completed `NEEDS_REVIEW` with 17 checks, 16 passed, 1 warning, and 0 critical. Gemini extracted Eiffel Tower/1889 at 0.0s (0.99) and Apollo 11/1968 at 12.0s (0.98), ignored the subjective statement, grounded Eiffel as `supported` (1.0), and grounded Apollo as `possible_conflict` (1.0) with the July 20, 1969 evidence.
+- Real grounding metadata supplied Eiffel citations titled `wikipedia.org` and `britannica.com`, and Apollo citations titled `wikipedia.org` and `usra.edu`, each as a provider-issued Google grounding redirect URL. Only Apollo produced `AI_CLAIM_POSSIBLE_CONFLICT`, timestamped at 12.0s; the supported Eiffel claim produced no finding.
+- The accepted live scan used one client, one Files API upload, four total generation calls (Promise, Viewer, Claim extraction, one batched Search verification), and one remote deletion. Upload took 2.265s, provider-state retrieval 0.218s, Claim extraction 2.542s, grounded verification 2.962s, cleanup 0.412s, and the full scan 22.825s. AI provenance recorded `succeeded` and cleanup true.
+- Milestone 14 post-live targeted Claim Review suite — 11 passed, 0 failed. `git diff --check` passed; `.env.local` and generated media remained ignored and untracked.

@@ -89,6 +89,17 @@ export interface ViewerPassSummary {
   issue_count: number;
 }
 
+export type ClaimReviewStatus = "disabled" | "no_claims" | "clean" | "needs_review" | "unavailable";
+
+export interface ClaimReviewSummary {
+  status: ClaimReviewStatus;
+  claims_checked: number;
+  supported_count: number;
+  conflict_count: number;
+  insufficient_evidence_count: number;
+  explanation: string | null;
+}
+
 export interface PreflightReport {
   schema_version: string;
   verdict: FindingStatus;
@@ -105,5 +116,6 @@ export interface PreflightReport {
   ai_review: AIReviewSummary;
   promise_check: PromiseCheckSummary;
   viewer_pass: ViewerPassSummary;
+  claim_review: ClaimReviewSummary;
   scan_duration_seconds: number;
 }

@@ -182,6 +182,7 @@ class AIReviewConfig(BaseModel):
     timestamp_tolerance_seconds: float = Field(default=1.0, ge=0, le=10)
     promise_check: "PromiseCheckConfig" = Field(default_factory=lambda: PromiseCheckConfig())
     viewer_pass: "ViewerPassConfig" = Field(default_factory=lambda: ViewerPassConfig())
+    claim_review: "ClaimReviewConfig" = Field(default_factory=lambda: ClaimReviewConfig())
 
 
 class PromiseCheckConfig(BaseModel):
@@ -205,6 +206,17 @@ class ViewerPassConfig(BaseModel):
     enabled: bool = True
     minimum_issue_confidence: float = Field(default=0.75, ge=0, le=1)
     maximum_issues: int = Field(default=5, ge=1, le=10)
+
+
+class ClaimReviewConfig(BaseModel):
+    """Conservative policy for optional grounded factual-claim review."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    maximum_claims: int = Field(default=3, ge=1, le=3)
+    minimum_extraction_confidence: float = Field(default=0.75, ge=0, le=1)
+    minimum_conflict_confidence: float = Field(default=0.75, ge=0, le=1)
 
 
 class CreatorRuleConfig(BaseModel):

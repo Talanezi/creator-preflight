@@ -5,6 +5,12 @@ from time import perf_counter
 
 from creator_preflight.ai_review import AIReviewError, GeminiReviewSession, GeminiVideoReviewer
 from creator_preflight.captions import inspect_caption_file, speech_gap_findings
+from creator_preflight.claim_review import (
+    ClaimReviewer,
+    ClaimVerificationStatus,
+    GeminiClaimReviewer,
+    claim_review_findings,
+)
 from creator_preflight.config import DetectorConfig, PreflightConfig
 from creator_preflight.detectors import (
     detect_black_segments,
@@ -19,6 +25,8 @@ from creator_preflight.models import (
     AIReviewSummary,
     AnomalyScanResult,
     CheckResult,
+    ClaimReviewStatus,
+    ClaimReviewSummary,
     Finding,
     FindingSeverity,
     FindingStatus,
@@ -135,6 +143,7 @@ class PreflightScanner:
         transcriber: SpeechTranscriber | None = None,
         promise_reviewer: PromiseReviewer | None = None,
         viewer_reviewer: ViewerPassReviewer | None = None,
+        claim_reviewer: ClaimReviewer | None = None,
         ai_adapter: GeminiVideoReviewer | None = None,
     ) -> None:
         if timeout_seconds <= 0:
@@ -154,7 +163,18 @@ class PreflightScanner:
             if promise_reviewer is not None
             else GeminiViewerPassReviewer(shared_adapter)
         )
-        self.ai_adapter = shared_adapter if promise_reviewer is None and viewer_reviewer is None else None
+        self.claim_reviewer = (
+            claim_reviewer
+            if claim_reviewer is not None
+            else None
+            if promise_reviewer is not None or viewer_reviewer is not None
+            else GeminiClaimReviewer(shared_adapter)
+        )
+        self.ai_adapter = (
+            shared_adapter
+            if promise_reviewer is None and viewer_reviewer is None and claim_reviewer is None
+            else None
+        )
 
     def scan(
         self, media_path: str | Path, package: PublishingPackage
@@ -230,6 +250,7 @@ class PreflightScanner:
         )
         promise_summary = PromiseCheckSummary(status=PromiseCheckStatus.DISABLED)
         viewer_summary = ViewerPassSummary(status=ViewerPassStatus.DISABLED)
+        claim_summary = ClaimReviewSummary(status=ClaimReviewStatus.DISABLED)
         promise_enabled = (
             self.config.ai_review.enabled
             and self.config.ai_review.promise_check.enabled
@@ -239,6 +260,11 @@ class PreflightScanner:
             and self.config.ai_review.viewer_pass.enabled
             and self.viewer_reviewer is not None
         )
+        claim_enabled = (
+            self.config.ai_review.enabled
+            and self.config.ai_review.claim_review.enabled
+            and self.claim_reviewer is not None
+        )
         if promise_enabled and not package.title.strip():
             promise_summary = PromiseCheckSummary(
                 status=PromiseCheckStatus.NOT_EVALUABLE,
@@ -247,10 +273,11 @@ class PreflightScanner:
 
         promise_result = None
         viewer_result = None
+        claim_result = None
         task_errors: dict[str, AIReviewError] = {}
         shared_provider_error: AIReviewError | None = None
         session: GeminiReviewSession | None = None
-        needs_provider = viewer_enabled or (promise_enabled and bool(package.title.strip()))
+        needs_provider = claim_enabled or viewer_enabled or (promise_enabled and bool(package.title.strip()))
         if needs_provider and self.ai_adapter is not None:
             try:
                 session = self.ai_adapter.open_session(media_path, self.config.ai_review)
@@ -261,6 +288,8 @@ class PreflightScanner:
                     task_errors["promise"] = exc
                 if viewer_enabled:
                     task_errors["viewer"] = exc
+                if claim_enabled:
+                    task_errors["claims"] = exc
 
         if promise_enabled and package.title.strip() and "promise" not in task_errors:
             try:
@@ -303,6 +332,27 @@ class PreflightScanner:
                     )
             except AIReviewError as exc:
                 task_errors["viewer"] = exc
+
+        if claim_enabled and "claims" not in task_errors:
+            try:
+                if session is not None:
+                    claim_result = self.claim_reviewer.review_in_session(
+                        session,
+                        anomaly_result.media.duration_seconds,
+                        title=package.title,
+                        description=package.description,
+                        config=self.config.ai_review,
+                    )
+                else:
+                    claim_result = self.claim_reviewer.review(
+                        media_path,
+                        anomaly_result.media.duration_seconds,
+                        title=package.title,
+                        description=package.description,
+                        config=self.config.ai_review,
+                    )
+            except AIReviewError as exc:
+                task_errors["claims"] = exc
 
         if session is not None:
             session.close()
@@ -373,10 +423,50 @@ class PreflightScanner:
                 summary=exc.message,
             )
 
+        if claim_result is not None:
+            claim_findings = claim_review_findings(
+                claim_result.review,
+                provider=claim_result.provider,
+                model=claim_result.model,
+                config=self.config.ai_review,
+            )
+            ai_findings.extend(claim_findings)
+            ai_checks.append(CheckResult(
+                check_id="ai.claim_review",
+                passed=not claim_findings,
+                finding_codes=[finding.code for finding in claim_findings],
+            ))
+            supported = sum(item.status is ClaimVerificationStatus.SUPPORTED for item in claim_result.review.claims)
+            conflicts = len(claim_findings)
+            insufficient = sum(item.status is ClaimVerificationStatus.INSUFFICIENT_EVIDENCE for item in claim_result.review.claims)
+            claim_summary = ClaimReviewSummary(
+                status=(
+                    ClaimReviewStatus.NO_CLAIMS if not claim_result.review.claims
+                    else ClaimReviewStatus.NEEDS_REVIEW if conflicts
+                    else ClaimReviewStatus.CLEAN
+                ),
+                claims_checked=len(claim_result.review.claims),
+                supported_count=supported,
+                conflict_count=conflicts,
+                insufficient_evidence_count=insufficient,
+                explanation=(
+                    "No significant externally verifiable claims were selected."
+                    if not claim_result.review.claims
+                    else "Only sufficiently grounded possible conflicts become findings."
+                ),
+            )
+        elif "claims" in task_errors:
+            exc = task_errors["claims"]
+            ai_checks.append(CheckResult(check_id="ai.claim_review", passed=False, finding_codes=[]))
+            claim_summary = ClaimReviewSummary(
+                status=ClaimReviewStatus.UNAVAILABLE,
+                explanation=exc.message,
+            )
+
         if self.config.ai_review.enabled:
-            successes = int(promise_result is not None) + int(viewer_result is not None)
+            successes = int(promise_result is not None) + int(viewer_result is not None) + int(claim_result is not None)
             runtime_values = [
-                result.total_seconds for result in (promise_result, viewer_result) if result is not None
+                result.total_seconds for result in (promise_result, viewer_result, claim_result) if result is not None
             ]
             first_error = next(iter(task_errors.values()), None)
             ai_summary = AIReviewSummary(
@@ -401,7 +491,7 @@ class PreflightScanner:
                     session.cleanup_succeeded
                     if session is not None
                     else next(
-                        (result.cleanup_succeeded for result in (promise_result, viewer_result) if result is not None),
+                        (result.cleanup_succeeded for result in (promise_result, viewer_result, claim_result) if result is not None),
                         None,
                     )
                 ),
@@ -456,6 +546,7 @@ class PreflightScanner:
             ai_review=ai_summary,
             promise_check=promise_summary,
             viewer_pass=viewer_summary,
+            claim_review=claim_summary,
             scan_duration_seconds=perf_counter() - started_at,
         )
 

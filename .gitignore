@@ -31,3 +31,4 @@ data/
 uploads/
 reports/
 demo/generated/
+.demo/

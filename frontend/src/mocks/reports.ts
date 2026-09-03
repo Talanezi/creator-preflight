@@ -132,7 +132,7 @@ const findings: Finding[] = [
 ];
 
 export const needsReviewReport: PreflightReport = {
-  schema_version: "1.2",
+  schema_version: "1.4",
   verdict: "NEEDS_REVIEW",
   media: { ...media },
   findings,
@@ -174,6 +174,14 @@ export const needsReviewReport: PreflightReport = {
     status: "disabled",
     summary: null,
     issue_count: 0,
+  },
+  claim_review: {
+    status: "disabled",
+    claims_checked: 0,
+    supported_count: 0,
+    conflict_count: 0,
+    insufficient_evidence_count: 0,
+    explanation: null,
   },
   scan_duration_seconds: 0.159,
 };

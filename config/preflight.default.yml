@@ -94,3 +94,10 @@ ai_review:
     enabled: true
     minimum_issue_confidence: 0.75
     maximum_issues: 5
+  # Claim Review is separately opt-in. It extracts at most three important
+  # public factual claims, then verifies them together with Google Search.
+  claim_review:
+    enabled: false
+    maximum_claims: 3
+    minimum_extraction_confidence: 0.75
+    minimum_conflict_confidence: 0.75

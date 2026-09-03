@@ -374,6 +374,9 @@ svg { flex: 0 0 auto; }
 .finding-message, .finding-suggestion { overflow-wrap: anywhere; font-size: 13px; line-height: 1.55; }
 .finding-message { margin: 7px 0 0; color: var(--muted); }
 .finding-suggestion { margin: 5px 0 0; color: var(--text); }
+.finding-sources { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 10px; }
+.finding-sources a { color: var(--accent); font-size: 0.86rem; text-decoration: underline; text-underline-offset: 3px; }
+.finding-sources a:hover { text-decoration-thickness: 2px; }
 .evidence-details { margin-top: 10px; }
 .evidence-details summary { width: fit-content; font-size: 11px; }
 .evidence-details dl { display: grid; gap: 6px; margin: 10px 0 0; padding: 10px 0 0; border-top: 1px solid var(--line); }
