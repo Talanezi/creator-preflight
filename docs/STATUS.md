@@ -2,9 +2,9 @@
 
 ## Current milestone
 
-Milestone 12 — Promise Check.
+Milestone 13 — AI Final Viewer Pass.
 
-Status: completed on 2026-09-03 after real aligned, mismatched-title, thumbnail-multimodal, and professional-video `gemini-3.7-flash` validation.
+Status: completed on 2026-09-03 after a real full production scan successfully reused one Gemini video upload for Promise Check and Final Viewer Pass, validated both task results in one report, and explicitly cleaned up the remote file.
 
 ## Completed
 
@@ -87,6 +87,12 @@ Status: completed on 2026-09-03 after real aligned, mismatched-title, thumbnail-
 - Typed report schema 1.2 includes a compact Promise summary that distinguishes aligned, needs-review, unavailable, disabled, and not-evaluable outcomes without fabricating a score or finding.
 - The React results view renders positive Promise evidence and address time; editorial findings use the existing filters, timeline, and click-to-seek behavior.
 - Deterministic 36-second Promise fixture generator creates an unrelated 0–12 second creator intro, explicit blue-light/sleep content from 12 seconds onward, and an aligned 640×360 PNG thumbnail without tracking generated media.
+- Task-specific Final Viewer Pass trust boundary supports only narration/visual conflict, visible placeholder, and conservatively evidenced accidental-repetition observations.
+- One per-scan Gemini upload session now supports independent Promise and Viewer structured generation calls, task-failure isolation, and cleanup after both tasks.
+- Typed report schema 1.3 adds a compact Viewer Pass summary distinguishing clean, needs-review, unavailable, disabled, and not-evaluable outcomes.
+- Viewer findings require at least 0.75 confidence plus concrete evidence; narration conflicts additionally require spoken and visible evidence, and repetition requires both original and repeated intervals. All remain review-only.
+- The React results view renders a restrained Viewer Pass summary and existing editorial findings/timeline/click-to-seek behavior without a separate AI interface.
+- Local narrated 45-second clean and 48-second problematic Viewer fixtures isolate semantic review from deterministic black/silence/freeze/audio warnings.
 
 ## Not implemented
 
@@ -115,6 +121,7 @@ None known.
 - CLI exit code 1 represents a completed scan with either `NEEDS_REVIEW` or `BLOCKED`; it is not a runtime crash.
 - Gemini review is optional cloud processing: when enabled, the selected video leaves the local Creator Preflight instance and is sent to Google. Provider observations are probabilistic review evidence, not deterministic truth.
 - Promise Check is probabilistic editorial evidence. It does not predict retention/virality, fact-check claims, generate package assets, or perform a generic final-viewer review.
+- Final Viewer Pass is probabilistic internal-consistency evidence. It does not fact-check, identify which conflicting value is true, certify an error-free video, or provide generic creative criticism. Accidental repetition is inherently less reliable than explicit text/audio conflicts.
 - The adapter attempts explicit remote deletion, but provider cleanup failure cannot override a successful review; Gemini Files API uploads otherwise have the provider's temporary retention lifecycle.
 
 ## Known frontend limitations
@@ -244,3 +251,13 @@ None known.
 - Milestone 12 deterministic regression — clean control `READY` (14/14 passed); missing-description-only `NEEDS_REVIEW` (13 passed, 1 warning, 0 critical); missing-key Promise path `NEEDS_REVIEW` with only `AI_REVIEW_UNAVAILABLE`; one-command anomaly demo retained 15 passed, 5 warnings, 0 critical and the established 2–5 black, 3–6 silence, 7–10 freeze, calibrated audio, and title findings.
 - Milestone 12 complete backend suite — 146 passed, 0 failed, with 1 upstream Starlette TestClient deprecation warning. Complete frontend suite — 2 files and 28 tests passed, 0 failed. TypeScript compilation and Vite production build passed with 1,825 modules transformed.
 - Milestone 12 `.venv/bin/python -m compileall -q backend/src scripts`, `sh -n scripts/run_demo.sh`, and `git diff --check` — passed. `.env.local` remained ignored/untracked, generated Promise media remained ignored, and the diff-level API-key pattern check found no credential.
+- Milestone 13 controlled fixtures — clean: 45.0 seconds / 1,988,190 bytes; problematic: 48.0 seconds / 2,204,790 bytes. Both deterministic scans were `READY` with 14/14 checks and no technical findings.
+- Milestone 13 live clean Viewer task — `gemini-3.7-flash` returned `clean`, summary “No visual-narration conflicts, unrendered placeholder text, or duplicate segment sequences were observed in the video,” zero issues, and successful remote cleanup.
+- Milestone 13 live problematic Viewer task — upload 2.277s, processing 2.204s, generation 5.119s, total 9.599s, cleanup succeeded. It returned conflict 0.0–4.0s at 0.76 confidence (spoken `2021`, visible `2020`), placeholder 12.0–23.0s at 0.78 (`TODO REPLACE THIS CHART`), and duplicated ending 36.0–48.0s versus original 24.0–36.0s at 0.77. The calibrated 0.75 evidence gate normalizes all three as review-only findings.
+- The first provisional 0.80 Viewer gate suppressed these unmistakable controlled observations; the default was calibrated to 0.75 while retaining per-type evidence requirements and low-confidence suppression.
+- Full shared-session live retries uploaded and cleaned the video once, but the provider returned its account request-quota error before a successful Promise + Viewer pair could complete. The observed 429 is now mapped to safe non-blocking `ai_provider_quota_exhausted` state.
+- Milestone 13 focused backend suite — 62 passed, 0 failed, with 1 upstream Starlette TestClient deprecation warning. Complete backend suite — 156 passed, 0 failed, with the same warning.
+- Milestone 13 frontend suite — 2 files and 30 tests passed, 0 failed. TypeScript compilation and Vite production build passed with 1,825 modules transformed.
+- Milestone 13 deterministic release regression — clean narrated control `READY` (14 passed, 0 warnings); missing description `NEEDS_REVIEW` (13 passed, 1 warning, 0 critical); anomaly demo retained 15 passed, 5 warnings, black 2–5s, silence 3–6s, freeze 7–10s, calibrated audio, and title warning.
+- Milestone 13 final live full-production acceptance — the 48-second problematic control completed in approximately 13.616 seconds with `NEEDS_REVIEW`, 16 checks run, 15 passed, 3 warnings, and 0 critical. One Gemini Files upload (2.229s) was shared by two generation calls: Promise Check (3.350s) and Final Viewer Pass (4.938s). Provider processing used two polls totaling approximately 0.234s; one explicit remote deletion completed in 0.436s.
+- The combined live report contained both validated task results. Promise Check was `aligned` at 0.72 confidence, inferred “An explanation and update on the launch and status of the Aurora Project,” and found substantive delivery at 0.0s. Final Viewer Pass returned three review-only findings: narration `2021` versus visible `2020` at 0.0–4.0s (0.85), visible `TODO REPLACE THIS CHART` at 12.0–24.0s (0.88), and duplicated closing segment at 36.0–48.0s versus original 24.0–36.0s (0.87). AI provenance reported `succeeded`, cleanup true, and no AI result produced `BLOCKED`.

@@ -181,6 +181,7 @@ class AIReviewConfig(BaseModel):
     maximum_observations: int = Field(default=5, ge=1, le=10)
     timestamp_tolerance_seconds: float = Field(default=1.0, ge=0, le=10)
     promise_check: "PromiseCheckConfig" = Field(default_factory=lambda: PromiseCheckConfig())
+    viewer_pass: "ViewerPassConfig" = Field(default_factory=lambda: ViewerPassConfig())
 
 
 class PromiseCheckConfig(BaseModel):
@@ -194,6 +195,16 @@ class PromiseCheckConfig(BaseModel):
     maximum_thumbnail_file_size_bytes: int = Field(
         default=5_000_000, gt=0, le=20_000_000
     )
+
+
+class ViewerPassConfig(BaseModel):
+    """Conservative policy for concrete final-export inconsistencies."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    minimum_issue_confidence: float = Field(default=0.75, ge=0, le=1)
+    maximum_issues: int = Field(default=5, ge=1, le=10)
 
 
 class CreatorRuleConfig(BaseModel):

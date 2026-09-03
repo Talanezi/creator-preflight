@@ -3,6 +3,7 @@ import type {
   CaptionSummary,
   AIReviewSummary,
   PromiseCheckSummary,
+  ViewerPassSummary,
   Finding,
   MediaInspection,
   PreflightReport,
@@ -176,7 +177,17 @@ function isPreflightReport(value: unknown): value is PreflightReport {
     && (value.caption_summary === null || isCaptionSummary(value.caption_summary))
     && isAIReviewSummary(value.ai_review)
     && isPromiseCheckSummary(value.promise_check)
+    && isViewerPassSummary(value.viewer_pass)
     && isNonnegativeNumber(value.scan_duration_seconds);
+}
+
+function isViewerPassSummary(value: unknown): value is ViewerPassSummary {
+  return isRecord(value)
+    && (value.status === "disabled" || value.status === "clean"
+      || value.status === "needs_review" || value.status === "not_evaluable"
+      || value.status === "unavailable")
+    && isNullableString(value.summary)
+    && isNonnegativeNumber(value.issue_count);
 }
 
 function isAIReviewSummary(value: unknown): value is AIReviewSummary {

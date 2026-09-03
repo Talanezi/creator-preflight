@@ -90,6 +90,7 @@ export function ResultsView({
       </header>
 
       <PromiseSummary report={report} />
+      <ViewerPassSummaryView report={report} />
 
       <div className="review-workspace">
         <section className="media-review" aria-label="Video review">
@@ -164,6 +165,26 @@ export function ResultsView({
         </section>
       </div>
     </main>
+  );
+}
+
+function ViewerPassSummaryView({ report }: { report: PreflightReport }) {
+  const viewer = report.viewer_pass;
+  const labels = {
+    disabled: "Not run",
+    clean: "No high-confidence inconsistencies found",
+    needs_review: `${viewer.issue_count} ${viewer.issue_count === 1 ? "item" : "items"} to review`,
+    not_evaluable: "Not evaluable",
+    unavailable: "Unavailable",
+  } as const;
+  return (
+    <section className={`promise-summary viewer-${viewer.status}`} aria-labelledby="viewer-pass-title">
+      <div>
+        <h2 id="viewer-pass-title">Final Viewer Pass</h2>
+        <strong>{labels[viewer.status]}</strong>
+      </div>
+      {viewer.summary && <p>{viewer.summary}</p>}
+    </section>
   );
 }
 
@@ -328,6 +349,12 @@ function evidenceEntries(finding: Finding): Array<[string, string]> {
   if (typeof details.model === "string") evidence.push(["AI model", details.model]);
   if (typeof details.inferred_promise === "string") evidence.push(["Inferred promise", details.inferred_promise]);
   if (typeof details.delay_warning_seconds === "number") evidence.push(["Promise window", `${details.delay_warning_seconds.toFixed(1)} sec`]);
+  if (typeof details.spoken_evidence === "string") evidence.push(["Spoken evidence", details.spoken_evidence]);
+  if (typeof details.visible_evidence === "string") evidence.push(["Visible evidence", details.visible_evidence]);
+  if (typeof details.original_start_seconds === "number") {
+    const end = typeof details.original_end_seconds === "number" ? details.original_end_seconds : details.original_start_seconds;
+    evidence.push(["Original interval", `${formatTimecode(details.original_start_seconds)}–${formatTimecode(end)}`]);
+  }
   return evidence;
 }
 

@@ -13,6 +13,7 @@ The web interface keeps the selected video available for local preview, so click
 - UTF-8 SRT and WebVTT files are parsed for timing, ordering, range, overlap, empty text, gaps, and merged timeline coverage.
 - Optional `faster-whisper` can compare locally detected speech intervals with caption coverage. The `tiny.en` CPU/`int8` path has been smoke-tested; model acquisition may require an initial download, while inference runs locally.
 - Optional Gemini Promise Check compares the finished video with its title and optional thumbnail, reports when the advertised subject begins being substantively addressed, and surfaces only evidence-backed alignment issues.
+- Optional Gemini Final Viewer Pass reviews the finished video's visuals and spoken content for high-confidence internal inconsistencies: narration/graphic conflicts, visible production placeholders, and conservatively gated accidental repetition.
 
 FFmpeg analysis is deterministic media processing, not AI. Optional Whisper is disabled by default and is not required for the primary demo or ordinary scans. Core deterministic scans use no paid API, platform account, API key, cloud inference, or external media. Optional Gemini video-review infrastructure is separately opt-in and sends the selected video to Google only when explicitly enabled.
 
@@ -117,6 +118,8 @@ Set `GEMINI_API_KEY` only in the backend process environment, then enable `ai_re
 
 Promise Check infers the viewer promise, identifies the approximate first substantive delivery timestamp, and reviews title/video and optional thumbnail/video alignment. Its default application policy warns when substantive delivery begins after 20 seconds and normalizes only specific supported issues with confidence of at least 0.70 plus concrete evidence. It does not score engagement, predict performance, fact-check claims, or generate titles/thumbnails. AI evidence cannot block a scan, and deterministic scanning still completes if the optional SDK, key, or provider is unavailable.
 
+Final Viewer Pass uses a separate validated task schema and reports only supported internal inconsistencies with concrete evidence at confidence 0.75 or higher. It does not decide which conflicting statement is factually correct and does not offer generic pacing, hook, or creative advice. Promise Check and Final Viewer Pass make separate structured requests while reusing one Gemini video upload per scan.
+
 Generate the small, copyright-free Promise Check validation package with:
 
 ```sh
@@ -125,10 +128,18 @@ Generate the small, copyright-free Promise Check validation package with:
 
 This creates ignored local output under `demo/generated/`: a 36-second video with an unrelated 0–12 second creator intro followed by explicit blue-light/sleep content, plus an aligned PNG thumbnail.
 
+Generate the narrated, copyright-free Viewer Pass controls on macOS with:
+
+```sh
+PYTHONPATH=backend/src .venv/bin/python scripts/generate_viewer_fixture.py
+```
+
+The clean 45-second fixture keeps spoken and visible launch-year information consistent. The problematic 48-second fixture includes a spoken `2021`/visible `2020` conflict, a visible `TODO REPLACE THIS CHART` placeholder, and an immediately duplicated closing segment. These are validation fixtures, not bundled media.
+
 The `google-genai` 2.22.0, `gemini-3.7-flash` path has been smoke-tested with an actual generated video upload, native structured observations, timestamp validation, and explicit remote-file cleanup. This verifies that specific integration path, not every Gemini model, account, video size, or codec.
 
 ## Architecture
 
-React sends a local multipart request to FastAPI; FastAPI and the CLI both invoke `PreflightScanner`; the scanner applies validated YAML rules, FFmpeg/FFprobe analysis, caption parsing, optional local speech comparison, and explicitly enabled Gemini Promise Check. Provider-specific Gemini file lifecycle code remains isolated behind a task-specific validated Promise boundary. Reports use one typed schema with timestamped findings, a positive/abstaining Promise summary, explicit check counts, provider provenance, and a deterministic verdict.
+React sends a local multipart request to FastAPI; FastAPI and the CLI both invoke `PreflightScanner`; the scanner applies validated YAML rules, FFmpeg/FFprobe analysis, caption parsing, optional local speech comparison, and explicitly enabled Gemini Promise Check and Final Viewer Pass. Provider-specific Gemini file lifecycle code remains isolated behind task-specific validated boundaries. Reports use one typed schema with timestamped findings, positive/abstaining AI summaries, explicit check counts, provider provenance, and a deterministic verdict.
 
 See [`docs/SPEC.md`](docs/SPEC.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and [`docs/STATUS.md`](docs/STATUS.md) for the product contract and verified status.

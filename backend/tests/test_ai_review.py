@@ -262,6 +262,22 @@ def test_provider_timeout_and_api_error_are_structured(tmp_path: Path) -> None:
     assert provider_error.value.code == "ai_upload_failed"
 
 
+def test_generation_quota_error_is_safe_and_marked_unavailable(tmp_path: Path) -> None:
+    client = FakeClient({"observations": []})
+    client.models.generate_content = lambda **kwargs: (_ for _ in ()).throw(
+        RuntimeError("429 RESOURCE_EXHAUSTED provider quota")
+    )
+
+    with pytest.raises(AIReviewError) as captured:
+        _reviewer(client).review(
+            tmp_path / "video.mp4", 12.0, AIReviewConfig(enabled=True)
+        )
+
+    assert captured.value.code == "ai_provider_quota_exhausted"
+    assert captured.value.unavailable is True
+    assert "429" not in captured.value.message
+
+
 def test_processing_timeout_is_bounded(tmp_path: Path) -> None:
     client = FakeClient({"observations": []}, state="PROCESSING")
 

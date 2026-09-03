@@ -81,6 +81,14 @@ export interface PromiseCheckSummary {
   thumbnail_alignment: "aligned" | "mismatched" | "not_evaluable" | null;
 }
 
+export type ViewerPassStatus = "disabled" | "clean" | "needs_review" | "not_evaluable" | "unavailable";
+
+export interface ViewerPassSummary {
+  status: ViewerPassStatus;
+  summary: string | null;
+  issue_count: number;
+}
+
 export interface PreflightReport {
   schema_version: string;
   verdict: FindingStatus;
@@ -96,5 +104,6 @@ export interface PreflightReport {
   caption_summary: CaptionSummary | null;
   ai_review: AIReviewSummary;
   promise_check: PromiseCheckSummary;
+  viewer_pass: ViewerPassSummary;
   scan_duration_seconds: number;
 }

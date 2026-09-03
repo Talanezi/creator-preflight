@@ -172,12 +172,30 @@ class PromiseCheckSummary(BaseModel):
     thumbnail_alignment: Literal["aligned", "mismatched", "not_evaluable"] | None = None
 
 
+class ViewerPassStatus(str, Enum):
+    DISABLED = "disabled"
+    CLEAN = "clean"
+    NEEDS_REVIEW = "needs_review"
+    NOT_EVALUABLE = "not_evaluable"
+    UNAVAILABLE = "unavailable"
+
+
+class ViewerPassSummary(BaseModel):
+    """Compact result from the optional AI Final Viewer Pass."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: ViewerPassStatus
+    summary: str | None = Field(default=None, max_length=1000)
+    issue_count: int = Field(default=0, ge=0, le=10)
+
+
 class PreflightReport(BaseModel):
     """Unified, explainable Creator Preflight scan report."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "1.2"
+    schema_version: str = "1.3"
     verdict: FindingStatus
     media: MediaInspection
     findings: list[Finding]
@@ -191,6 +209,7 @@ class PreflightReport(BaseModel):
     caption_summary: CaptionSummary | None = None
     ai_review: AIReviewSummary
     promise_check: PromiseCheckSummary
+    viewer_pass: ViewerPassSummary
     scan_duration_seconds: float = Field(ge=0)
 
 

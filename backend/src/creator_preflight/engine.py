@@ -3,7 +3,7 @@
 from pathlib import Path
 from time import perf_counter
 
-from creator_preflight.ai_review import AIReviewError
+from creator_preflight.ai_review import AIReviewError, GeminiReviewSession, GeminiVideoReviewer
 from creator_preflight.captions import inspect_caption_file, speech_gap_findings
 from creator_preflight.config import DetectorConfig, PreflightConfig
 from creator_preflight.detectors import (
@@ -26,6 +26,8 @@ from creator_preflight.models import (
     PromiseCheckStatus,
     PromiseCheckSummary,
     PublishingPackage,
+    ViewerPassStatus,
+    ViewerPassSummary,
 )
 from creator_preflight.promise_check import (
     GeminiPromiseReviewer,
@@ -40,6 +42,12 @@ from creator_preflight.transcription import (
     WhisperTranscriber,
 )
 from creator_preflight.thumbnails import inspect_thumbnail
+from creator_preflight.viewer_pass import (
+    GeminiViewerPassReviewer,
+    ViewerPassOverallStatus,
+    ViewerPassReviewer,
+    viewer_pass_findings,
+)
 
 
 class MediaAnomalyScanner:
@@ -126,6 +134,8 @@ class PreflightScanner:
         timeout_seconds: float = 60,
         transcriber: SpeechTranscriber | None = None,
         promise_reviewer: PromiseReviewer | None = None,
+        viewer_reviewer: ViewerPassReviewer | None = None,
+        ai_adapter: GeminiVideoReviewer | None = None,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be greater than zero")
@@ -135,7 +145,16 @@ class PreflightScanner:
         self.ffmpeg_binary = ffmpeg_binary
         self.timeout_seconds = timeout_seconds
         self.transcriber = transcriber or WhisperTranscriber()
-        self.promise_reviewer = promise_reviewer or GeminiPromiseReviewer()
+        shared_adapter = ai_adapter or GeminiVideoReviewer()
+        self.promise_reviewer = promise_reviewer or GeminiPromiseReviewer(shared_adapter)
+        self.viewer_reviewer = (
+            viewer_reviewer
+            if viewer_reviewer is not None
+            else None
+            if promise_reviewer is not None
+            else GeminiViewerPassReviewer(shared_adapter)
+        )
+        self.ai_adapter = shared_adapter if promise_reviewer is None and viewer_reviewer is None else None
 
     def scan(
         self, media_path: str | Path, package: PublishingPackage
@@ -210,114 +229,184 @@ class PreflightScanner:
             status=AIReviewStatus.DISABLED,
         )
         promise_summary = PromiseCheckSummary(status=PromiseCheckStatus.DISABLED)
+        viewer_summary = ViewerPassSummary(status=ViewerPassStatus.DISABLED)
         promise_enabled = (
             self.config.ai_review.enabled
             and self.config.ai_review.promise_check.enabled
         )
+        viewer_enabled = (
+            self.config.ai_review.enabled
+            and self.config.ai_review.viewer_pass.enabled
+            and self.viewer_reviewer is not None
+        )
         if promise_enabled and not package.title.strip():
-            ai_summary = AIReviewSummary(
-                enabled=True,
-                provider=self.config.ai_review.provider,
-                model=self.config.ai_review.model,
-                status=AIReviewStatus.NOT_RUN,
-                reason_code="promise_title_missing",
-            )
             promise_summary = PromiseCheckSummary(
                 status=PromiseCheckStatus.NOT_EVALUABLE,
                 explanation="Promise Check requires a non-empty title.",
             )
-        elif promise_enabled:
+
+        promise_result = None
+        viewer_result = None
+        task_errors: dict[str, AIReviewError] = {}
+        shared_provider_error: AIReviewError | None = None
+        session: GeminiReviewSession | None = None
+        needs_provider = viewer_enabled or (promise_enabled and bool(package.title.strip()))
+        if needs_provider and self.ai_adapter is not None:
             try:
-                ai_result = self.promise_reviewer.review(
-                    media_path,
-                    anomaly_result.media.duration_seconds,
-                    title=package.title,
-                    description=package.description,
-                    thumbnail_path=package.thumbnail_path,
-                    thumbnail_info=thumbnail_info,
-                    config=self.config.ai_review,
-                )
-                ai_findings = promise_findings(
-                    ai_result.review,
-                    provider=ai_result.provider,
-                    model=ai_result.model,
-                    config=self.config.ai_review,
-                    thumbnail_supplied=package.thumbnail_path is not None,
-                )
-                ai_checks.append(
-                    CheckResult(
-                        check_id="ai.promise",
-                        passed=not ai_findings,
-                        finding_codes=[finding.code for finding in ai_findings],
-                    )
-                )
-                ai_summary = AIReviewSummary(
-                    enabled=True,
-                    provider=ai_result.provider,
-                    model=ai_result.model,
-                    status=AIReviewStatus.SUCCEEDED,
-                    observation_count=len(ai_findings),
-                    runtime_seconds=ai_result.total_seconds,
-                    cleanup_succeeded=ai_result.cleanup_succeeded,
-                )
-                promise_status = (
-                    PromiseCheckStatus.NOT_EVALUABLE
-                    if (
-                        ai_result.review.overall_delivery
-                        is PromiseDelivery.NOT_EVALUABLE
-                        or (
-                            not ai_findings
-                            and ai_result.review.overall_delivery
-                            is not PromiseDelivery.ALIGNED
-                        )
-                    )
-                    else PromiseCheckStatus.NEEDS_REVIEW
-                    if ai_findings
-                    else PromiseCheckStatus.ALIGNED
-                )
-                promise_summary = PromiseCheckSummary(
-                    status=promise_status,
-                    inferred_promise=ai_result.review.inferred_promise,
-                    first_substantive_address_seconds=ai_result.review.first_substantive_address_seconds,
-                    first_substantive_address_evidence=ai_result.review.first_substantive_address_evidence,
-                    overall_delivery=ai_result.review.overall_delivery.value,
-                    explanation=ai_result.review.overall_delivery_explanation,
-                    confidence=ai_result.review.confidence,
-                    thumbnail_alignment=(
-                        ai_result.review.thumbnail_alignment.value
-                        if ai_result.review.thumbnail_alignment is not None
-                        else None
-                    ),
-                )
+                session = self.ai_adapter.open_session(media_path, self.config.ai_review)
+                session.start()
             except AIReviewError as exc:
-                unavailable = _ai_review_unavailable_finding(
-                    exc,
-                    provider=self.config.ai_review.provider,
-                    model=self.config.ai_review.model,
-                )
-                ai_findings.append(unavailable)
-                ai_checks.append(
-                    CheckResult(
-                        check_id="ai.promise",
-                        passed=False,
-                        finding_codes=[unavailable.code],
+                shared_provider_error = exc
+                if promise_enabled and package.title.strip():
+                    task_errors["promise"] = exc
+                if viewer_enabled:
+                    task_errors["viewer"] = exc
+
+        if promise_enabled and package.title.strip() and "promise" not in task_errors:
+            try:
+                if session is not None:
+                    promise_result = self.promise_reviewer.review_in_session(
+                        session,
+                        anomaly_result.media.duration_seconds,
+                        title=package.title,
+                        description=package.description,
+                        thumbnail_path=package.thumbnail_path,
+                        thumbnail_info=thumbnail_info,
+                        config=self.config.ai_review,
                     )
+                else:
+                    promise_result = self.promise_reviewer.review(
+                        media_path,
+                        anomaly_result.media.duration_seconds,
+                        title=package.title,
+                        description=package.description,
+                        thumbnail_path=package.thumbnail_path,
+                        thumbnail_info=thumbnail_info,
+                        config=self.config.ai_review,
+                    )
+            except AIReviewError as exc:
+                task_errors["promise"] = exc
+
+        if viewer_enabled and "viewer" not in task_errors:
+            try:
+                if session is not None:
+                    viewer_result = self.viewer_reviewer.review_in_session(
+                        session,
+                        anomaly_result.media.duration_seconds,
+                        config=self.config.ai_review,
+                    )
+                else:
+                    viewer_result = self.viewer_reviewer.review(
+                        media_path,
+                        anomaly_result.media.duration_seconds,
+                        config=self.config.ai_review,
+                    )
+            except AIReviewError as exc:
+                task_errors["viewer"] = exc
+
+        if session is not None:
+            session.close()
+
+        if promise_result is not None:
+            promise_task_findings = promise_findings(
+                promise_result.review,
+                provider=promise_result.provider,
+                model=promise_result.model,
+                config=self.config.ai_review,
+                thumbnail_supplied=package.thumbnail_path is not None,
+            )
+            ai_findings.extend(promise_task_findings)
+            ai_checks.append(CheckResult(
+                check_id="ai.promise",
+                passed=not promise_task_findings,
+                finding_codes=[finding.code for finding in promise_task_findings],
+            ))
+            promise_summary = _promise_summary(promise_result.review, promise_task_findings)
+        elif "promise" in task_errors:
+            exc = task_errors["promise"]
+            finding = _ai_review_unavailable_finding(
+                exc, provider=self.config.ai_review.provider, model=self.config.ai_review.model
+            )
+            ai_findings.append(finding)
+            ai_checks.append(CheckResult(check_id="ai.promise", passed=False, finding_codes=[finding.code]))
+            promise_summary = PromiseCheckSummary(status=PromiseCheckStatus.UNAVAILABLE, explanation=exc.message)
+
+        if viewer_result is not None:
+            viewer_findings = viewer_pass_findings(
+                viewer_result.review,
+                provider=viewer_result.provider,
+                model=viewer_result.model,
+                config=self.config.ai_review,
+            )
+            ai_findings.extend(viewer_findings)
+            ai_checks.append(CheckResult(
+                check_id="ai.viewer_pass",
+                passed=not viewer_findings,
+                finding_codes=[finding.code for finding in viewer_findings],
+            ))
+            viewer_summary = ViewerPassSummary(
+                status=(
+                    ViewerPassStatus.NOT_EVALUABLE
+                    if viewer_result.review.overall_status is ViewerPassOverallStatus.NOT_EVALUABLE
+                    else ViewerPassStatus.NEEDS_REVIEW
+                    if viewer_findings
+                    else ViewerPassStatus.CLEAN
+                ),
+                summary=viewer_result.review.summary,
+                issue_count=len(viewer_findings),
+            )
+        elif "viewer" in task_errors:
+            exc = task_errors["viewer"]
+            if exc is shared_provider_error and any(
+                finding.code == "AI_REVIEW_UNAVAILABLE" for finding in ai_findings
+            ):
+                viewer_failure_codes = ["AI_REVIEW_UNAVAILABLE"]
+            else:
+                finding = _viewer_unavailable_finding(
+                    exc, provider=self.config.ai_review.provider, model=self.config.ai_review.model
                 )
-                ai_summary = AIReviewSummary(
-                    enabled=True,
-                    provider=self.config.ai_review.provider,
-                    model=self.config.ai_review.model,
-                    status=(
-                        AIReviewStatus.UNAVAILABLE
-                        if exc.unavailable
-                        else AIReviewStatus.FAILED
-                    ),
-                    reason_code=exc.code,
-                )
-                promise_summary = PromiseCheckSummary(
-                    status=PromiseCheckStatus.UNAVAILABLE,
-                    explanation=exc.message,
-                )
+                ai_findings.append(finding)
+                viewer_failure_codes = [finding.code]
+            ai_checks.append(CheckResult(check_id="ai.viewer_pass", passed=False, finding_codes=viewer_failure_codes))
+            viewer_summary = ViewerPassSummary(
+                status=ViewerPassStatus.UNAVAILABLE,
+                summary=exc.message,
+            )
+
+        if self.config.ai_review.enabled:
+            successes = int(promise_result is not None) + int(viewer_result is not None)
+            runtime_values = [
+                result.total_seconds for result in (promise_result, viewer_result) if result is not None
+            ]
+            first_error = next(iter(task_errors.values()), None)
+            ai_summary = AIReviewSummary(
+                enabled=True,
+                provider=self.config.ai_review.provider,
+                model=self.config.ai_review.model,
+                status=(
+                    AIReviewStatus.SUCCEEDED
+                    if successes
+                    else AIReviewStatus.NOT_RUN
+                    if not needs_provider
+                    else AIReviewStatus.UNAVAILABLE
+                    if first_error and first_error.unavailable
+                    else AIReviewStatus.FAILED
+                ),
+                observation_count=sum(
+                    finding.source.startswith("ai.") and finding.code not in {"AI_REVIEW_UNAVAILABLE", "AI_VIEWER_PASS_UNAVAILABLE"}
+                    for finding in ai_findings
+                ),
+                runtime_seconds=max(runtime_values) if runtime_values else None,
+                cleanup_succeeded=(
+                    session.cleanup_succeeded
+                    if session is not None
+                    else next(
+                        (result.cleanup_succeeded for result in (promise_result, viewer_result) if result is not None),
+                        None,
+                    )
+                ),
+                reason_code=first_error.code if first_error and not successes else None,
+            )
         findings = reconcile_findings(
             [
                 *anomaly_result.findings,
@@ -366,6 +455,7 @@ class PreflightScanner:
             caption_summary=caption_summary,
             ai_review=ai_summary,
             promise_check=promise_summary,
+            viewer_pass=viewer_summary,
             scan_duration_seconds=perf_counter() - started_at,
         )
 
@@ -507,4 +597,49 @@ def _ai_review_unavailable_finding(
             "model": model,
         },
         suggestion="Review the deterministic findings and retry AI review later if needed.",
+    )
+
+
+def _viewer_unavailable_finding(
+    exc: AIReviewError, *, provider: str, model: str
+) -> Finding:
+    return Finding(
+        code="AI_VIEWER_PASS_UNAVAILABLE",
+        severity=FindingSeverity.WARNING,
+        status=FindingStatus.NEEDS_REVIEW,
+        message=exc.message,
+        source=f"ai.{provider}.viewer",
+        details={
+            "category": "editorial",
+            "title": "Final Viewer Pass unavailable",
+            "reason_code": exc.code,
+            "provider": provider,
+            "model": model,
+        },
+        suggestion="Review the deterministic findings and retry the Viewer Pass later if needed.",
+    )
+
+
+def _promise_summary(review, findings: list[Finding]) -> PromiseCheckSummary:
+    status = (
+        PromiseCheckStatus.NOT_EVALUABLE
+        if (
+            review.overall_delivery is PromiseDelivery.NOT_EVALUABLE
+            or (not findings and review.overall_delivery is not PromiseDelivery.ALIGNED)
+        )
+        else PromiseCheckStatus.NEEDS_REVIEW
+        if findings
+        else PromiseCheckStatus.ALIGNED
+    )
+    return PromiseCheckSummary(
+        status=status,
+        inferred_promise=review.inferred_promise,
+        first_substantive_address_seconds=review.first_substantive_address_seconds,
+        first_substantive_address_evidence=review.first_substantive_address_evidence,
+        overall_delivery=review.overall_delivery.value,
+        explanation=review.overall_delivery_explanation,
+        confidence=review.confidence,
+        thumbnail_alignment=(
+            review.thumbnail_alignment.value if review.thumbnail_alignment is not None else None
+        ),
     )

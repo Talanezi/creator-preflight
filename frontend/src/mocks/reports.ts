@@ -170,6 +170,11 @@ export const needsReviewReport: PreflightReport = {
     confidence: null,
     thumbnail_alignment: null,
   },
+  viewer_pass: {
+    status: "disabled",
+    summary: null,
+    issue_count: 0,
+  },
   scan_duration_seconds: 0.159,
 };
 

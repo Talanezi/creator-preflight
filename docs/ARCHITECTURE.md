@@ -2,7 +2,7 @@
 
 ## Current state
 
-`creator_preflight.media` validates and inspects local media; `creator_preflight.detectors` contains the independent FFmpeg checks; `creator_preflight.rules` parses creator-style chapter lines and validates video/package metadata; `creator_preflight.captions` parses and validates SRT/WebVTT content and performs interval coverage comparisons; `creator_preflight.ai_review` isolates optional Gemini file upload, structured generation, validation, and cleanup; `creator_preflight.promise_check` owns the task-specific editorial schema and policy; and `creator_preflight.engine.PreflightScanner` coordinates one complete scan.
+`creator_preflight.media` validates and inspects local media; `creator_preflight.detectors` contains the independent FFmpeg checks; `creator_preflight.rules` parses creator-style chapter lines and validates video/package metadata; `creator_preflight.captions` parses and validates SRT/WebVTT content and performs interval coverage comparisons; `creator_preflight.ai_review` isolates an optional reusable Gemini upload session, structured generation, validation, and cleanup; `creator_preflight.promise_check` and `creator_preflight.viewer_pass` own independent task-specific editorial schemas and policies; and `creator_preflight.engine.PreflightScanner` coordinates one complete scan.
 
 The scanner reconciles redundant black-contained freeze findings, sorts final findings deterministically, records every executed check, derives counts, and computes `READY`, `NEEDS_REVIEW`, or `BLOCKED` directly from finding statuses. Caption checks are added only when a caption file is supplied, while the speech-coverage check is added only when optional transcription is enabled and audio exists. The report contains no opaque score. Both `creator_preflight.cli` and the FastAPI unified upload endpoint call this same scanner. The React interface submits the unified multipart request and renders caption findings through its existing category, timeline, and seek behavior.
 
@@ -22,9 +22,10 @@ React web UI
 When explicitly enabled, the engine also calls one optional provider boundary:
 
 ```text
-PreflightScanner ── Promise Check trust boundary ── shared Gemini Files/API adapter
-       │                    │
-       └── deterministic    └── validated summary + review-only findings
+PreflightScanner ── shared Gemini upload session ── Files/API adapter
+       │                 ├── Promise Check trust boundary
+       │                 └── Final Viewer Pass trust boundary
+       └── deterministic       └── validated summaries + review-only findings
 ```
 
 The Gemini API key exists only in the backend process environment. AI-disabled scans never invoke the provider. Provider failure becomes a non-blocking, structured unavailable review state and cannot erase deterministic results.
@@ -55,6 +56,8 @@ scripts/                 Repository automation scripts
 - `creator_preflight.transcription`: optional lazy local faster-whisper adapter.
 - `creator_preflight.ai_review`: optional Gemini SDK adapter, bounded remote file lifecycle, native structured-output validation, and observation normalization boundary.
 - `creator_preflight.promise_check`: injection-resistant task prompt, typed Promise result, timestamp validation, confidence/evidence gating, and narrow editorial finding normalization.
+- `creator_preflight.viewer_pass`: injection-resistant final-viewer prompt, typed internal-consistency result, timestamp validation, conservative confidence/evidence gating, and narrow review-only finding normalization.
+- `creator_preflight.viewer_fixture`: small local narrated controls for live clean/conflict/placeholder/repetition validation.
 - `creator_preflight.thumbnails`: bounded content-based PNG/JPEG validation for optional temporary thumbnail inputs.
 
 The `engine`, `models`, `rules`, `detectors`, `media`, `api`, and `cli` boundaries now exist at the scope required through Milestone 3. Rule and detector logic do not depend on FastAPI, CLI formatting, or React. Adapters translate inputs and render results only. FFmpeg/FFprobe execution uses argument arrays rather than a shell, enforces timeouts, captures diagnostics, and converts tool failures into typed application errors.
@@ -75,4 +78,4 @@ The overall status order is `READY < NEEDS_REVIEW < BLOCKED`. Aggregation is det
 
 The core runtime depends on Python packages, Node build tooling for the frontend, and locally installed FFmpeg/FFprobe. Deterministic scans do not depend on network services at scan time. `faster-whisper` is isolated in the `transcription` optional dependency group, imported lazily, and disabled by default. The default `local_files_only` setting prevents an implicit model download; loaded models are reused within the backend process.
 
-Gemini support is isolated in the `ai` optional dependency group and disabled by default. When Promise Check is enabled, the backend reads `GEMINI_API_KEY`, uploads the video once, optionally includes one validated thumbnail in the same generation request, polls provider processing within a configured bound, requests native schema-constrained output, validates issue types and timestamps locally, and attempts explicit remote deletion. The 20-second delay rule and 0.70 confidence-plus-specific-evidence gate are application policy rather than model-controlled severity. Remote file identifiers and secrets are not exposed; AI findings are review-only and cannot produce `BLOCKED`.
+Gemini support is isolated in the `ai` optional dependency group and disabled by default. When enabled, the backend reads `GEMINI_API_KEY`, uploads the video once, polls provider processing within a configured bound, performs independent native schema-constrained Promise and Viewer generation calls against the same remote file, and attempts deletion only after all enabled tasks finish. Promise may include one validated thumbnail inline. The 20-second/0.70 Promise policy and 0.75 Viewer confidence-plus-type-specific-evidence policy are application-controlled. One task failure cannot erase another task's valid result; remote identifiers and secrets are not exposed; all AI findings are review-only and cannot produce `BLOCKED`.

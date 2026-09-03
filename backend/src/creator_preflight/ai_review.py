@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
 from typing import Callable, Generic, Mapping, Protocol, TypeVar
@@ -121,6 +121,142 @@ class StructuredAIReviewResult(Generic[StructuredModel]):
     cleanup_succeeded: bool
 
 
+class GeminiReviewSession:
+    """One bounded Gemini upload reused by task-specific structured reviews."""
+
+    def __init__(self, adapter: "GeminiVideoReviewer", media_path: str | Path, config: AIReviewConfig):
+        self.adapter = adapter
+        self.media_path = Path(media_path)
+        self.config = config
+        self.client = None
+        self.remote_file = None
+        self.upload_seconds = 0.0
+        self.processing_seconds = 0.0
+        self.started_at: float | None = None
+        self.cleanup_succeeded = False
+        self.generation_count = 0
+
+    def start(self) -> "GeminiReviewSession":
+        api_key = self.adapter._environ.get("GEMINI_API_KEY", "").strip()
+        if not api_key:
+            raise AIReviewError(
+                "ai_api_key_missing",
+                "Gemini review is enabled, but GEMINI_API_KEY is not configured on the server.",
+                unavailable=True,
+            )
+        self.client = self.adapter._create_client(api_key, self.config.timeout_seconds)
+        self.started_at = self.adapter._clock()
+        try:
+            upload_started = self.adapter._clock()
+            self.remote_file = self.client.files.upload(file=str(self.media_path))
+            self.upload_seconds = self.adapter._clock() - upload_started
+            processing_started = self.adapter._clock()
+            self.remote_file = self.adapter._wait_until_active(
+                self.client, self.remote_file, self.config.timeout_seconds
+            )
+            self.processing_seconds = self.adapter._clock() - processing_started
+            if not getattr(self.remote_file, "uri", None) or not getattr(self.remote_file, "mime_type", None):
+                raise AIReviewError(
+                    "ai_provider_response_invalid",
+                    "Gemini did not return a usable uploaded-video reference.",
+                )
+        except AIReviewError:
+            self.close()
+            raise
+        except Exception as exc:
+            self.close()
+            if _looks_like_timeout(exc):
+                raise AIReviewError("ai_provider_timeout", "Gemini upload timed out.") from exc
+            raise AIReviewError("ai_upload_failed", "Gemini upload could not be completed.") from exc
+        return self
+
+    def generate_structured(
+        self,
+        *,
+        prompt: str,
+        response_model: type[StructuredModel],
+        validate_output: Callable[[StructuredModel], StructuredModel] | None = None,
+        image_path: str | Path | None = None,
+        image_mime_type: str | None = None,
+    ) -> StructuredAIReviewResult[StructuredModel]:
+        if self.client is None or self.remote_file is None or self.started_at is None:
+            raise AIReviewError("ai_session_not_started", "Gemini review session is not active.")
+        generation_started = self.adapter._clock()
+        try:
+            contents: list[object] = [self.remote_file, prompt]
+            if image_path is not None:
+                if not image_mime_type:
+                    raise AIReviewError(
+                        "ai_image_input_invalid",
+                        "Gemini image input is missing a validated media type.",
+                    )
+                types = _load_google_genai_types()
+                contents.insert(
+                    1,
+                    types.Part.from_bytes(
+                        data=Path(image_path).read_bytes(), mime_type=image_mime_type
+                    ),
+                )
+            response = self.client.models.generate_content(
+                model=self.config.model,
+                contents=contents,
+                config={
+                    "response_mime_type": "application/json",
+                    "response_json_schema": response_model.model_json_schema(),
+                    "thinking_config": {"thinking_level": "LOW"},
+                    "max_output_tokens": 2048,
+                    "automatic_function_calling": {"disable": True},
+                    "http_options": {
+                        "timeout": max(1, round(self.config.timeout_seconds * 1000))
+                    },
+                },
+            )
+            generation_seconds = self.adapter._clock() - generation_started
+            output = _validate_structured_output(getattr(response, "text", None), response_model)
+            if validate_output is not None:
+                output = validate_output(output)
+            self.generation_count += 1
+            return StructuredAIReviewResult(
+                provider=self.config.provider,
+                model=self.config.model,
+                output=output,
+                upload_seconds=self.upload_seconds,
+                processing_seconds=self.processing_seconds,
+                generation_seconds=generation_seconds,
+                total_seconds=self.adapter._clock() - self.started_at,
+                cleanup_succeeded=False,
+            )
+        except AIReviewError:
+            raise
+        except Exception as exc:
+            if _looks_like_timeout(exc):
+                raise AIReviewError("ai_provider_timeout", "Gemini generation timed out.") from exc
+            if _looks_like_quota_error(exc):
+                raise AIReviewError(
+                    "ai_provider_quota_exhausted",
+                    "Gemini review is temporarily unavailable because the provider quota was reached.",
+                    unavailable=True,
+                ) from exc
+            raise AIReviewError("ai_generation_failed", "Gemini generation could not be completed.") from exc
+
+    def close(self) -> None:
+        if self.client is None:
+            return
+        if self.remote_file is not None and getattr(self.remote_file, "name", None):
+            try:
+                self.client.files.delete(name=self.remote_file.name)
+                self.cleanup_succeeded = True
+            except Exception:
+                self.cleanup_succeeded = False
+        close = getattr(self.client, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+        self.client = None
+
+
 class GeminiVideoReviewer:
     """Upload once, request native structured output, validate, then delete."""
 
@@ -177,110 +313,24 @@ class GeminiVideoReviewer:
         image_mime_type: str | None = None,
     ) -> StructuredAIReviewResult[StructuredModel]:
         """Run one schema-constrained task through the proven upload lifecycle."""
-
-        api_key = self._environ.get("GEMINI_API_KEY", "").strip()
-        if not api_key:
-            raise AIReviewError(
-                "ai_api_key_missing",
-                "Gemini review is enabled, but GEMINI_API_KEY is not configured on the server.",
-                unavailable=True,
-            )
-
-        client = self._create_client(api_key, config.timeout_seconds)
-        started_at = self._clock()
-        remote_file = None
-        cleanup_succeeded = False
-        stage = "upload"
+        session = self.open_session(media_path, config)
         try:
-            upload_started = self._clock()
-            remote_file = client.files.upload(file=str(media_path))
-            upload_seconds = self._clock() - upload_started
-
-            stage = "processing"
-            processing_started = self._clock()
-            remote_file = self._wait_until_active(
-                client, remote_file, config.timeout_seconds
+            session.start()
+            result = session.generate_structured(
+                prompt=prompt,
+                response_model=response_model,
+                validate_output=validate_output,
+                image_path=image_path,
+                image_mime_type=image_mime_type,
             )
-            processing_seconds = self._clock() - processing_started
-
-            file_uri = getattr(remote_file, "uri", None)
-            mime_type = getattr(remote_file, "mime_type", None)
-            if not file_uri or not mime_type:
-                raise AIReviewError(
-                    "ai_provider_response_invalid",
-                    "Gemini did not return a usable uploaded-video reference.",
-                )
-
-            stage = "generation"
-            generation_started = self._clock()
-            contents: list[object] = [remote_file, prompt]
-            if image_path is not None:
-                if not image_mime_type:
-                    raise AIReviewError(
-                        "ai_image_input_invalid",
-                        "Gemini image input is missing a validated media type.",
-                    )
-                types = _load_google_genai_types()
-                contents.insert(
-                    1,
-                    types.Part.from_bytes(
-                        data=Path(image_path).read_bytes(), mime_type=image_mime_type
-                    ),
-                )
-            response = client.models.generate_content(
-                model=config.model,
-                contents=contents,
-                config={
-                    "response_mime_type": "application/json",
-                    "response_json_schema": response_model.model_json_schema(),
-                    "thinking_config": {"thinking_level": "LOW"},
-                    "max_output_tokens": 2048,
-                    "automatic_function_calling": {"disable": True},
-                    "http_options": {
-                        "timeout": max(1, round(config.timeout_seconds * 1000))
-                    },
-                },
-            )
-            generation_seconds = self._clock() - generation_started
-            output = _validate_structured_output(
-                getattr(response, "text", None), response_model
-            )
-            if validate_output is not None:
-                output = validate_output(output)
-        except AIReviewError:
-            raise
-        except Exception as exc:
-            if _looks_like_timeout(exc):
-                code = "ai_provider_timeout"
-                message = f"Gemini {stage} timed out."
-            else:
-                code = f"ai_{stage}_failed"
-                message = f"Gemini {stage} could not be completed."
-            raise AIReviewError(code, message) from exc
         finally:
-            if remote_file is not None and getattr(remote_file, "name", None):
-                try:
-                    client.files.delete(name=remote_file.name)
-                    cleanup_succeeded = True
-                except Exception:
-                    cleanup_succeeded = False
-            close = getattr(client, "close", None)
-            if callable(close):
-                try:
-                    close()
-                except Exception:
-                    pass
+            session.close()
+        return replace(result, cleanup_succeeded=session.cleanup_succeeded)
 
-        return StructuredAIReviewResult(
-            provider=config.provider,
-            model=config.model,
-            output=output,
-            upload_seconds=upload_seconds,
-            processing_seconds=processing_seconds,
-            generation_seconds=generation_seconds,
-            total_seconds=self._clock() - started_at,
-            cleanup_succeeded=cleanup_succeeded,
-        )
+    def open_session(
+        self, media_path: str | Path, config: AIReviewConfig
+    ) -> GeminiReviewSession:
+        return GeminiReviewSession(self, media_path, config)
 
     def _create_client(self, api_key: str, timeout_seconds: float):
         factory = self._client_factory
@@ -388,6 +438,11 @@ def _validate_observation_batch(
 
 def _looks_like_timeout(exc: Exception) -> bool:
     return "timeout" in type(exc).__name__.lower()
+
+
+def _looks_like_quota_error(exc: Exception) -> bool:
+    message = str(exc).upper()
+    return "429" in message or "RESOURCE_EXHAUSTED" in message or "RATE LIMIT" in message
 
 
 def _load_google_genai():

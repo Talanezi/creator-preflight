@@ -232,6 +232,55 @@ describe("Creator Preflight frontend", () => {
     expect(video.currentTime).toBe(12);
   });
 
+  it("renders a clean Final Viewer Pass summary without inventing a finding", () => {
+    const report: PreflightReport = {
+      ...readyReport,
+      viewer_pass: {
+        status: "clean",
+        summary: "No high-confidence internal inconsistencies were found.",
+        issue_count: 0,
+      },
+    };
+    render(<ResultsView report={report} />);
+    expect(screen.getByRole("heading", { name: "Final Viewer Pass" })).toBeInTheDocument();
+    expect(screen.getByText("No high-confidence inconsistencies found")).toBeInTheDocument();
+    expect(screen.getByText("No high-confidence internal inconsistencies were found.")).toBeInTheDocument();
+  });
+
+  it("renders and seeks a Viewer Pass editorial finding", async () => {
+    const user = userEvent.setup();
+    const finding = {
+      code: "AI_NARRATION_VISUAL_CONFLICT",
+      severity: "warning" as const,
+      status: "NEEDS_REVIEW" as const,
+      message: "Narration says 2021 while the graphic says 2020.",
+      source: "ai.gemini.viewer",
+      timestamp_start_seconds: 4,
+      timestamp_end_seconds: 8,
+      details: {
+        category: "editorial",
+        title: "Possible narration / graphic conflict",
+        confidence: 0.95,
+      },
+      suggestion: "Review which value was intended before publishing.",
+    };
+    const report: PreflightReport = {
+      ...needsReviewReport,
+      findings: [finding],
+      warning_count: 1,
+      viewer_pass: {
+        status: "needs_review",
+        summary: "One internal inconsistency needs review.",
+        issue_count: 1,
+      },
+    };
+    render(<ResultsView report={report} previewUrl="blob:viewer-preview" />);
+    const video = screen.getByTestId("preview-video") as HTMLVideoElement;
+    expect(screen.getByText("1 item to review")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "00:04.00–00:08.00" }));
+    expect(video.currentTime).toBe(4);
+  });
+
   it.each([
     [readyReport, "Ready"],
     [needsReviewReport, "Needs review"],

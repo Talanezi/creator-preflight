@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from creator_preflight.ai_review import (
     AIReviewError,
+    GeminiReviewSession,
     GeminiVideoReviewer,
     StructuredAIReviewResult,
 )
@@ -134,6 +135,36 @@ class GeminiPromiseReviewer:
             media_path,
             config=config,
             prompt=prompt,
+            response_model=PromiseReviewResult,
+            validate_output=lambda result: validate_promise_timestamps(
+                result,
+                media_duration_seconds=media_duration_seconds,
+                tolerance_seconds=config.timestamp_tolerance_seconds,
+                thumbnail_supplied=thumbnail_path is not None,
+            ),
+            image_path=thumbnail_path,
+            image_mime_type=thumbnail_info.mime_type if thumbnail_info else None,
+        )
+        return _provider_result(structured)
+
+    def review_in_session(
+        self,
+        session: GeminiReviewSession,
+        media_duration_seconds: float | None,
+        *,
+        title: str,
+        description: str,
+        thumbnail_path: str | Path | None,
+        thumbnail_info: ThumbnailInfo | None,
+        config: AIReviewConfig,
+    ) -> PromiseProviderResult:
+        structured = session.generate_structured(
+            prompt=build_promise_prompt(
+                title=title,
+                description=description,
+                media_duration_seconds=media_duration_seconds,
+                thumbnail_supplied=thumbnail_path is not None,
+            ),
             response_model=PromiseReviewResult,
             validate_output=lambda result: validate_promise_timestamps(
                 result,
