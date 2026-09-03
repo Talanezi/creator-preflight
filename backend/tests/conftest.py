@@ -110,6 +110,153 @@ def _generate_silence_at_end_video(path: Path) -> Path:
     return path
 
 
+def _generate_low_motion_video(path: Path) -> Path:
+    command = [
+        _ffmpeg_executable(),
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=0x303030:size=160x90:rate=24:duration=5",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=24x24:rate=24:duration=5",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=220:sample_rate=48000:duration=5",
+        "-filter_complex",
+        "[0:v][1:v]overlay=x='68+4*sin(t)':y=33:shortest=1[video]",
+        "-map",
+        "[video]",
+        "-map",
+        "2:a",
+        "-c:v",
+        "mpeg4",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-shortest",
+        str(path),
+    ]
+    _run_ffmpeg(command)
+    return path
+
+
+def _generate_ambient_pause_video(path: Path) -> Path:
+    command = [
+        _ffmpeg_executable(),
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=160x90:rate=24:duration=8",
+        "-f",
+        "lavfi",
+        "-i",
+        "anoisesrc=color=pink:amplitude=0.01:sample_rate=48000:duration=8",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=180:sample_rate=48000:duration=8",
+        "-filter_complex",
+        (
+            "[2:a]volume='if(lt(mod(t,3),1.2),0.15,0)':eval=frame[voice];"
+            "[1:a][voice]amix=inputs=2:normalize=0[audio]"
+        ),
+        "-map",
+        "0:v",
+        "-map",
+        "[audio]",
+        "-c:v",
+        "mpeg4",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-shortest",
+        str(path),
+    ]
+    _run_ffmpeg(command)
+    return path
+
+
+def _generate_short_black_transition_video(path: Path) -> Path:
+    filter_graph = ";".join(
+        [
+            "testsrc2=size=160x90:rate=24:duration=2[v0]",
+            "color=c=black:size=160x90:rate=24:duration=0.5[v1]",
+            "testsrc2=size=160x90:rate=24:duration=2.5[v2]",
+            "[v0][v1][v2]concat=n=3:v=1:a=0,format=yuv420p[video]",
+            "sine=frequency=440:sample_rate=48000:duration=5[audio]",
+        ]
+    )
+    command = [
+        _ffmpeg_executable(),
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-filter_complex",
+        filter_graph,
+        "-map",
+        "[video]",
+        "-map",
+        "[audio]",
+        "-c:v",
+        "mpeg4",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        str(path),
+    ]
+    _run_ffmpeg(command)
+    return path
+
+
+def _generate_near_full_scale_transient_video(path: Path) -> Path:
+    filter_graph = ";".join(
+        [
+            "testsrc2=size=160x90:rate=24:duration=5[video]",
+            "sine=frequency=440:sample_rate=48000:duration=2[a0]",
+            "aevalsrc=0.99*sin(2*PI*880*t):s=48000:d=0.05[a1]",
+            "sine=frequency=550:sample_rate=48000:duration=2.95[a2]",
+            "[a0][a1][a2]concat=n=3:v=0:a=1[audio]",
+        ]
+    )
+    command = [
+        _ffmpeg_executable(),
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-filter_complex",
+        filter_graph,
+        "-map",
+        "[video]",
+        "-map",
+        "[audio]",
+        "-c:v",
+        "mpeg4",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        str(path),
+    ]
+    _run_ffmpeg(command)
+    return path
+
+
 @pytest.fixture(scope="session")
 def video_with_audio(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return _generate_video(
@@ -150,6 +297,34 @@ def silence_at_end_video(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     return _generate_silence_at_end_video(
         tmp_path_factory.mktemp("media") / "silence-at-end.mp4"
+    )
+
+
+@pytest.fixture(scope="session")
+def low_motion_video(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return _generate_low_motion_video(
+        tmp_path_factory.mktemp("media") / "legitimate-low-motion.mp4"
+    )
+
+
+@pytest.fixture(scope="session")
+def ambient_pause_video(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return _generate_ambient_pause_video(
+        tmp_path_factory.mktemp("media") / "ambient-speech-pauses.mp4"
+    )
+
+
+@pytest.fixture(scope="session")
+def short_black_transition_video(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return _generate_short_black_transition_video(
+        tmp_path_factory.mktemp("media") / "short-black-transition.mp4"
+    )
+
+
+@pytest.fixture(scope="session")
+def near_full_scale_transient_video(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return _generate_near_full_scale_transient_video(
+        tmp_path_factory.mktemp("media") / "near-full-scale-transient.mp4"
     )
 
 

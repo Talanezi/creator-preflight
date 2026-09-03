@@ -54,9 +54,20 @@ def test_blocked_report_counts_critical_findings(video_with_audio: Path) -> None
     )
 
     assert report.verdict is FindingStatus.BLOCKED
-    assert report.warning_count == 0
-    assert report.critical_count == 2
+    assert report.warning_count == 1
+    assert report.critical_count == 1
     assert report.passed_check_count == report.checks_run_count - 2
+
+
+def test_missing_description_only_needs_review(video_with_audio: Path) -> None:
+    report = PreflightScanner(config=_test_config()).scan(
+        video_with_audio, PublishingPackage(title="A valid title")
+    )
+
+    assert report.verdict is FindingStatus.NEEDS_REVIEW
+    assert report.warning_count == 1
+    assert report.critical_count == 0
+    assert [finding.code for finding in report.findings] == ["DESCRIPTION_REQUIRED"]
 
 
 def test_reconciliation_ordering_and_json_serialization(anomaly_video: Path) -> None:
@@ -77,7 +88,10 @@ def test_reconciliation_ordering_and_json_serialization(anomaly_video: Path) -> 
         "VIDEO_FREEZE_SEGMENT",
         "AUDIO_PEAK_WARNING",
     ]
-    assert json.loads(report.model_dump_json())["verdict"] == "NEEDS_REVIEW"
+    payload = json.loads(report.model_dump_json())
+    assert payload["verdict"] == "NEEDS_REVIEW"
+    assert payload["schema_version"] == "1.1"
+    assert payload["ai_review"]["status"] == "disabled"
 
     repeated = PreflightScanner(config=config).scan(anomaly_video, _valid_package())
     assert [finding.code for finding in repeated.findings] == codes

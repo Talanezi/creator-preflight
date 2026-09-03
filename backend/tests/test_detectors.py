@@ -86,7 +86,9 @@ def test_freeze_segment_timestamp_and_duration(anomaly_video: Path) -> None:
     assert len(findings) <= 2
 
 
-def test_audio_peak_is_global_and_contains_measurement(anomaly_video: Path) -> None:
+def test_sustained_near_full_scale_audio_is_global_and_contains_density_evidence(
+    anomaly_video: Path,
+) -> None:
     media = MediaInspector().inspect(anomaly_video)
     findings = inspect_audio_peak(
         anomaly_video, media, DetectorConfig().audio_peak
@@ -98,6 +100,47 @@ def test_audio_peak_is_global_and_contains_measurement(anomaly_video: Path) -> N
     assert finding.details is not None
     assert finding.details["measurement_scope"] == "global"
     assert float(finding.details["measured_peak_dbfs"]) >= -1.0
+    assert (
+        float(finding.details["near_full_scale_sample_fraction"])
+        >= DetectorConfig().audio_peak.minimum_near_full_scale_sample_fraction
+    )
+    assert int(finding.details["near_full_scale_sample_count"]) > 0
+    assert int(finding.details["decoded_sample_count"]) > 0
+
+
+def test_brief_near_full_scale_transient_does_not_warn(
+    near_full_scale_transient_video: Path,
+) -> None:
+    media = MediaInspector().inspect(near_full_scale_transient_video)
+
+    assert inspect_audio_peak(
+        near_full_scale_transient_video, media, DetectorConfig().audio_peak
+    ) == []
+
+
+def test_legitimate_low_motion_video_is_not_reported_as_frozen(
+    low_motion_video: Path,
+) -> None:
+    result = MediaAnomalyScanner().scan(low_motion_video)
+
+    assert "VIDEO_FREEZE_SEGMENT" not in [finding.code for finding in result.findings]
+
+
+def test_speech_style_pauses_over_ambient_audio_are_not_reported_as_silence(
+    ambient_pause_video: Path,
+) -> None:
+    result = MediaAnomalyScanner().scan(ambient_pause_video)
+
+    assert "AUDIO_LONG_SILENCE" not in [finding.code for finding in result.findings]
+
+
+def test_short_black_edit_transition_is_below_interval_thresholds(
+    short_black_transition_video: Path,
+) -> None:
+    result = MediaAnomalyScanner().scan(short_black_transition_video)
+
+    assert "VIDEO_BLACK_SEGMENT" not in [finding.code for finding in result.findings]
+    assert "VIDEO_FREEZE_SEGMENT" not in [finding.code for finding in result.findings]
 
 
 def test_video_without_audio_returns_only_missing_audio_finding(

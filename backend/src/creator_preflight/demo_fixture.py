@@ -33,7 +33,7 @@ def generate_demo_video(
             "sine=frequency=440:sample_rate=48000:duration=3[a0]",
             "anullsrc=r=48000:cl=mono,atrim=duration=3[a1]",
             "sine=frequency=660:sample_rate=48000:duration=4[a2]",
-            "aevalsrc=0.99*sin(2*PI*880*t):s=48000:d=1[a3]",
+            "aevalsrc=clip(4*sin(2*PI*880*t)\\,-1\\,1):s=48000:d=1[a3]",
             "sine=frequency=550:sample_rate=48000:duration=1[a4]",
             "[a0][a1][a2][a3][a4]concat=n=5:v=0:a=1[audio]",
         ]

@@ -55,6 +55,19 @@ export interface CaptionSummary {
   timeline_coverage_percent: number | null;
 }
 
+export type AIReviewStatus = "disabled" | "succeeded" | "unavailable" | "failed";
+
+export interface AIReviewSummary {
+  enabled: boolean;
+  provider: string;
+  model: string;
+  status: AIReviewStatus;
+  observation_count: number;
+  runtime_seconds: number | null;
+  cleanup_succeeded: boolean | null;
+  reason_code: string | null;
+}
+
 export interface PreflightReport {
   schema_version: string;
   verdict: FindingStatus;
@@ -68,5 +81,6 @@ export interface PreflightReport {
   configuration_profile: string;
   configuration_source: string | null;
   caption_summary: CaptionSummary | null;
+  ai_review: AIReviewSummary;
   scan_duration_seconds: number;
 }

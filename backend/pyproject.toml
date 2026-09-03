@@ -26,6 +26,9 @@ dev = [
 transcription = [
   "faster-whisper>=1.1,<2",
 ]
+ai = [
+  "google-genai>=2.22,<3",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

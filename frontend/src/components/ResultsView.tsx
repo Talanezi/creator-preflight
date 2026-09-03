@@ -38,6 +38,7 @@ const categoryIcons = {
   audio: Headphones,
   package: Tag,
   captions: ScanLine,
+  ai: ScanLine,
 };
 
 export function ResultsView({
@@ -280,6 +281,8 @@ function evidenceEntries(finding: Finding): Array<[string, string]> {
   if (typeof details.minimum_duration_seconds === "number") evidence.push(["Warning threshold", `${details.minimum_duration_seconds.toFixed(2)} sec`]);
   if (typeof details.measured_peak_dbfs === "number") evidence.push(["Measured peak", `${details.measured_peak_dbfs.toFixed(1)} dBFS`]);
   if (typeof details.warning_threshold_dbfs === "number") evidence.push(["Warning threshold", `${details.warning_threshold_dbfs.toFixed(1)} dBFS`]);
+  if (typeof details.near_full_scale_sample_fraction === "number") evidence.push(["Near-full-scale samples", `${(details.near_full_scale_sample_fraction * 100).toFixed(2)}%`]);
+  if (typeof details.minimum_near_full_scale_sample_fraction === "number") evidence.push(["Sample-density threshold", `${(details.minimum_near_full_scale_sample_fraction * 100).toFixed(2)}%`]);
   if (typeof details.character_count === "number") evidence.push(["Title length", `${details.character_count} characters`]);
   if (typeof details.maximum_recommended_length === "number") evidence.push(["Recommended maximum", `${details.maximum_recommended_length} characters`]);
   if (typeof details.actual_height === "number") evidence.push(["Actual height", `${details.actual_height}px`]);
@@ -287,6 +290,9 @@ function evidenceEntries(finding: Finding): Array<[string, string]> {
   if (typeof details.maximum_uncovered_gap_seconds === "number") evidence.push(["Gap threshold", `${details.maximum_uncovered_gap_seconds.toFixed(2)} sec`]);
   if (typeof details.boundary_tolerance_seconds === "number") evidence.push(["Boundary tolerance", `${details.boundary_tolerance_seconds.toFixed(2)} sec`]);
   if (typeof details.media_duration_seconds === "number") evidence.push(["Media duration", `${details.media_duration_seconds.toFixed(2)} sec`]);
+  if (typeof details.confidence === "number") evidence.push(["AI confidence", `${Math.round(details.confidence * 100)}%`]);
+  if (typeof details.provider === "string") evidence.push(["AI provider", details.provider]);
+  if (typeof details.model === "string") evidence.push(["AI model", details.model]);
   return evidence;
 }
 
@@ -314,5 +320,6 @@ function humanizeCheck(value: string): string {
 }
 
 function capitalize(value: string): string {
+  if (value === "ai") return "AI";
   return value.charAt(0).toUpperCase() + value.slice(1);
 }

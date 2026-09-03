@@ -121,12 +121,34 @@ class CaptionSummary(BaseModel):
     timeline_coverage_percent: float | None = Field(default=None, ge=0, le=100)
 
 
+class AIReviewStatus(str, Enum):
+    DISABLED = "disabled"
+    SUCCEEDED = "succeeded"
+    UNAVAILABLE = "unavailable"
+    FAILED = "failed"
+
+
+class AIReviewSummary(BaseModel):
+    """Safe provider provenance for one optional AI review attempt."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    provider: str = Field(min_length=1, max_length=50)
+    model: str = Field(min_length=1, max_length=100)
+    status: AIReviewStatus
+    observation_count: int = Field(default=0, ge=0, le=10)
+    runtime_seconds: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    cleanup_succeeded: bool | None = None
+    reason_code: str | None = Field(default=None, min_length=1, max_length=100)
+
+
 class PreflightReport(BaseModel):
     """Unified, explainable Creator Preflight scan report."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "1.0"
+    schema_version: str = "1.1"
     verdict: FindingStatus
     media: MediaInspection
     findings: list[Finding]
@@ -138,6 +160,7 @@ class PreflightReport(BaseModel):
     configuration_profile: str
     configuration_source: str | None = None
     caption_summary: CaptionSummary | None = None
+    ai_review: AIReviewSummary
     scan_duration_seconds: float = Field(ge=0)
 
 

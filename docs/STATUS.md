@@ -2,9 +2,9 @@
 
 ## Current milestone
 
-Milestone 9 — final judge-mode release audit.
+Milestone 11 — Gemini multimodal video-intelligence infrastructure.
 
-Status: completed on 2026-09-02.
+Status: completed on 2026-09-03 after real `gemini-3.7-flash` Files API and structured video-understanding validation.
 
 ## Completed
 
@@ -72,6 +72,15 @@ Status: completed on 2026-09-02.
 - Root README rewritten around the verified product, reproducible quick start, CLI/web demo, local-first architecture, deterministic checks, caption parsing, and optional verified local Whisper behavior.
 - Final judge-mode audit verified the README value proposition, installation commands, one-command demo, real browser workflow, cautious finding language, optional Whisper claims, and repository hygiene without requiring product or UI changes.
 - Real browser demo verified the generated media, tracked title/description/SRT package, live FastAPI response, rendered counts/findings, proportional timeline, exact click-to-seek behavior, clean reset, and absence of mock controls or browser console issues.
+- Default missing-description policy calibrated from a blocking error to a review warning while preserving the existing deterministic verdict rules and stricter configurable package requirements.
+- Global audio-peak inspection calibrated to require both a decoded peak at or above the configured threshold and a configurable minimum density of samples in FFmpeg `volumedetect`'s top 1 dBFS histogram bin.
+- Demo audio now includes a deliberately hard-limited interval so its audio warning demonstrates sustained near-full-scale sample density rather than a single maximum sample.
+- Representative deterministic controls cover ordinary motion, low-motion talking-head-style footage, normal pauses over ambient signal, short black transitions, brief near-full-scale transients, and clean media without changing the established black, silence, or freeze defaults.
+- Optional `google-genai` dependency group and isolated `creator_preflight.ai_review` provider boundary implemented against the maintained SDK's Files API, Generate Content API, and native structured-output schema support.
+- Typed, bounded AI observation trust boundary validates approved objective observation types, text/evidence lengths, confidence, finite timestamp ranges, media-duration tolerance, and observation count before normalization.
+- `PreflightScanner` remains the single orchestrator; enabled AI observations become review-only normalized findings, while disabled or unavailable AI cannot invoke or break deterministic scanning.
+- Preflight report schema 1.1 adds safe AI provider/model/status/runtime/cleanup provenance without exposing an API key, remote file identifier, raw prompt, raw response, or provider traceback.
+- Copyright-free 12-second Gemini smoke fixture generator creates three known four-second color, shape-position, and audio-tone states in a generated 640×360 video under 300 KB.
 
 ## Not implemented
 
@@ -86,7 +95,7 @@ None known.
 ## Known detector limitations
 
 - Black frames are also static frames, so a sustained black section can legitimately produce both black and freeze findings.
-- Audio peak inspection is a global decoded peak measurement from FFmpeg `volumedetect`; it does not provide or fabricate a timestamp and is not a distortion or compliance certification.
+- Audio peak inspection combines FFmpeg `volumedetect`'s global decoded maximum with the fraction of decoded samples in its top 1 dBFS histogram bin. It is stronger evidence of sustained near-full-scale audio than a lone maximum, but does not prove audible clipping or distortion, provide a timestamp, or certify loudness/compliance.
 - Detectors analyze the first selected video or audio stream. Stream counts remain available from media inspection, but per-stream anomaly reports are not implemented.
 - Each applicable detector uses a separate bounded FFmpeg pass. This is reliable and fast for short demo media but intentionally not optimized into a combined filter graph.
 - Static shots, title cards, still images, intentional silence, and intentional dark sections can produce review warnings; findings are evidence for review, not claims of definite corruption.
@@ -98,6 +107,9 @@ None known.
 - Chapter parsing recognizes only lines beginning with `MM:SS` or `H:MM:SS` followed by a name. Inline times and ordinary numbers are intentionally ignored.
 - URL validation reports only obvious syntax errors in HTTP(S)/`www.`-style tokens. It does not resolve, request, classify, or establish the safety of a URL.
 - CLI exit code 1 represents a completed scan with either `NEEDS_REVIEW` or `BLOCKED`; it is not a runtime crash.
+- Gemini review is optional cloud processing: when enabled, the selected video leaves the local Creator Preflight instance and is sent to Google. Provider observations are probabilistic review evidence, not deterministic truth.
+- Milestone 11 validates only objective infrastructure-smoke observation types. Promise Check, factual verification, thumbnail comparison, and general editorial review are not implemented.
+- The adapter attempts explicit remote deletion, but provider cleanup failure cannot override a successful review; Gemini Files API uploads otherwise have the provider's temporary retention lifecycle.
 
 ## Known frontend limitations
 
@@ -186,3 +198,35 @@ None known.
 - Milestone 9 `cd frontend && npm test` — 2 test files passed; 24 tests passed, 0 failed.
 - Milestone 9 `cd frontend && npm run build` — passed; TypeScript compiled cleanly and Vite 8.2.2 transformed 1,825 modules.
 - Milestone 9 `.venv/bin/python -m compileall -q backend/src scripts`, `sh -n scripts/run_demo.sh`, and `git diff --check` — all passed.
+- Milestone 10 baseline professional-video reproduction — the local 1280×720 H.264/AAC, approximately 9:50 creator video initially returned `BLOCKED` with only `DESCRIPTION_REQUIRED` as critical and `AUDIO_PEAK_WARNING` from a decoded maximum of -0.0 dBFS. It had no black, silence, or freeze findings.
+- Milestone 10 audio investigation — the professional video had 39,809 samples in `volumedetect`'s top 1 dBFS bin out of 52,045,824 decoded samples (approximately 0.0765%), demonstrating that its isolated full-scale peak was not sustained. The calibrated default requires at least 5% near-full-scale sample density in addition to the existing -1.0 dBFS peak threshold.
+- Milestone 10 professional-video rerun with a normal title and non-empty description — `READY`; 14 checks run, 14 passed, 0 warnings, 0 critical, and no black, silence, freeze, or audio findings; report runtime approximately 15.546 seconds.
+- Milestone 10 representative controls — ordinary moving video, a low-motion talking-head proxy, normal speech-like pauses over continuous ambient noise, a 0.5-second black transition, a brief near-full-scale transient, and a clean audiovisual control produced no inappropriate black, silence, freeze, or audio warnings under the unchanged black/silence/freeze defaults.
+- Milestone 10 fresh `./scripts/run_demo.sh` — succeeded; `NEEDS_REVIEW`, 20 checks run, 15 passed, 5 warnings, 0 critical. Black was detected at 2.0–5.0 seconds, silence at 3.0–6.000021, and the non-black freeze at 7.0–10.0; the black-overlap freeze remained reconciled. The deliberately hard-limited audio interval produced a global density warning with 37,706 of 576,512 decoded samples (approximately 6.54%) in the top 1 dBFS bin, and the intended title-length warning remained.
+- Milestone 10 clean 1280×720 three-second audiovisual control — `READY`; 14 checks run, 14 passed, 0 warnings, 0 critical; report runtime approximately 0.182 seconds.
+- Milestone 10 missing-description-only validation on the clean control — `NEEDS_REVIEW`; 14 checks run, 13 passed, 1 warning, 0 critical; the sole finding was `DESCRIPTION_REQUIRED` with warning severity, and CLI exit code 1 represented a completed review scan.
+- Milestone 10 `.venv/bin/python -m pytest backend/tests` — 109 passed, 0 failed, with 1 upstream Starlette `TestClient` deprecation warning.
+- Milestone 10 `cd frontend && npm test -- --run` — 2 test files passed; 24 tests passed, 0 failed.
+- Milestone 10 `cd frontend && npm run build` — passed; TypeScript compiled cleanly and Vite 8.2.2 transformed 1,825 modules.
+- Milestone 10 `.venv/bin/python -m compileall -q backend/src scripts`, `sh -n scripts/run_demo.sh`, and `git diff --check` — all passed.
+- Milestone 11 official API verification — current Google documentation identifies stable `gemini-3.7-flash` as accepting video input and supporting structured output; installed `google-genai` 2.22.0 exposes Files upload/get/delete, bounded HTTP options, and `models.generate_content` with native response schema support.
+- Milestone 11 optional installation — `.venv/bin/python -m pip install './backend[dev,ai]'` succeeded. The ordinary dependency set remains unchanged unless the `ai` extra is explicitly selected.
+- Milestone 11 targeted AI/config/report/API/CLI validation — 59 passed, 0 failed, with 1 upstream Starlette `TestClient` deprecation warning.
+- Milestone 11 `.venv/bin/python -m pytest backend/tests` — 127 passed, 0 failed, with 1 upstream Starlette `TestClient` deprecation warning. Tests use injected provider clients and make no live Gemini request.
+- Milestone 11 `cd frontend && npm test -- --run` — 2 test files passed; 25 tests passed, 0 failed. AI-sourced findings use the existing findings/filter/timeline contract.
+- Milestone 11 `cd frontend && npm run build` — passed; TypeScript compiled cleanly and Vite 8.2.2 transformed 1,825 modules.
+- Generated AI smoke fixture — 640×360, 12.0 seconds, 291,459 bytes; blue/left-box/330 Hz from 0–4 seconds, green/center-box/440 Hz from 4–8 seconds, and red/right-box/550 Hz from 8–12 seconds.
+- Real AI-unavailable scan with `ai_review.enabled: true` and `GEMINI_API_KEY` intentionally absent — deterministic scan completed `NEEDS_REVIEW`; 15 checks, 14 passed, 1 warning, 0 critical; `AI_REVIEW_UNAVAILABLE` was the sole finding and report provenance recorded `ai_api_key_missing` without invoking Gemini.
+- AI-disabled clean scan — `READY`; schema 1.1, 14 checks, 14 passed, 0 warnings, 0 critical, `ai_review.status: disabled`, and no provider invocation.
+- Missing-description regression — `NEEDS_REVIEW`, 1 warning, 0 critical, with AI disabled. Fresh `./scripts/run_demo.sh` retained 15 passed, 5 warnings, 0 critical and the accepted 2–5 second black, 3–6 second silence, and 7–10 second freeze results.
+- Initial live-provider attempts exposed a narrow endpoint defect: Files processing first returned a transient provider HTTP 500, and the Interactions generation path then exhausted its 180-second read timeout. The adapter was changed only at the generation boundary to the maintained SDK's `models.generate_content` Files API path, with native JSON schema, low thinking, automatic function calling disabled, and the same bounded timeout.
+- Successful real Gemini smoke — `google-genai` 2.22.0 with `gemini-3.7-flash` authenticated, uploaded the 12.0-second/291,459-byte generated video, reached active processing, returned three schema-valid observations, and explicitly deleted the remote file. Upload took approximately 1.451 seconds, provider processing 2.228 seconds, generation 7.219 seconds, and total adapter time 11.224 seconds.
+- Real observations — blue background/white square left at 0.0–3.5 seconds, green background/white square centered at 3.5–7.5 seconds, and reddish-brown background/white square right at 7.5–11.0 seconds; all three returned 0.99 confidence and matched the known 0–4, 4–8, and 8–12 second fixture states within expected sampling tolerance.
+- The exact real observation payload passed the production Pydantic trust boundary, media-duration validation, and finding normalizer, producing three review-only `AI_REVIEW_VISUAL_CHANGE` findings with `ai.gemini` provenance and the same numeric intervals.
+- A subsequent full-scanner live request encountered a provider generation failure and correctly returned a schema-valid non-blocking `AI_REVIEW_UNAVAILABLE` result, demonstrating the real fallback path. The missing-key regression separately remained `NEEDS_REVIEW` with one AI-unavailable warning, zero critical findings, and no fabricated observations.
+- Milestone 11 continuation `PYTHONPATH=backend/src .venv/bin/python -m pytest backend/tests/test_ai_review.py` — 15 passed, 0 failed after the live endpoint correction.
+- Milestone 11 continuation complete backend suite — 127 passed, 0 failed, with 1 upstream Starlette `TestClient` deprecation warning.
+- Milestone 11 continuation frontend suite — 2 files and 25 tests passed; the production TypeScript/Vite build passed with 1,825 modules transformed.
+- Milestone 11 continuation deterministic release gate — clean control remained `READY` with no findings and AI disabled; missing description remained `NEEDS_REVIEW` with zero critical findings; the anomaly demo retained 15 passed, 5 warnings, black 2–5 seconds, silence 3–6 seconds, freeze 7–10 seconds, and calibrated near-full-scale audio behavior.
+- Milestone 11 continuation `.venv/bin/python -m compileall -q backend/src scripts` and `git diff --check` — passed. `.env.local` remained ignored and untracked; diff-level secret, generated-fixture tracking, and repository hygiene checks passed without exposing credential contents.
+- Milestone 11 `.venv/bin/python -m compileall -q backend/src scripts` and `git diff --check` — passed. Diff secret-pattern and tracked-artifact checks found no API key, `.env.local`, generated Gemini video, remote file identifier, or provider cache staged/tracked.

@@ -132,6 +132,46 @@ describe("Creator Preflight frontend", () => {
     expect(screen.getByText("1 timed finding")).toBeInTheDocument();
   });
 
+  it("renders AI-sourced review evidence without a separate UI contract", () => {
+    const report: PreflightReport = {
+      ...needsReviewReport,
+      findings: [{
+        code: "AI_REVIEW_VISUAL_CHANGE",
+        severity: "warning",
+        status: "NEEDS_REVIEW",
+        message: "The background changes from blue to green.",
+        source: "ai.gemini",
+        timestamp_start_seconds: 4,
+        timestamp_end_seconds: 4.5,
+        details: {
+          category: "ai",
+          title: "Background changes",
+          confidence: 0.95,
+          provider: "gemini",
+          model: "gemini-3.7-flash",
+        },
+        suggestion: null,
+      }],
+      warning_count: 1,
+      ai_review: {
+        enabled: true,
+        provider: "gemini",
+        model: "gemini-3.7-flash",
+        status: "succeeded",
+        observation_count: 1,
+        runtime_seconds: 2.4,
+        cleanup_succeeded: true,
+        reason_code: null,
+      },
+    };
+
+    render(<ResultsView report={report} />);
+
+    expect(screen.getByRole("button", { name: "AI 1" })).toBeInTheDocument();
+    expect(screen.getByText("Background changes")).toBeInTheDocument();
+    expect(screen.getByText("The background changes from blue to green.")).toBeInTheDocument();
+  });
+
   it.each([
     [readyReport, "Ready"],
     [needsReviewReport, "Needs review"],

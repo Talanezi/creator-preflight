@@ -8,12 +8,12 @@ The web interface keeps the selected video available for local preview, so click
 
 ## What it checks
 
-- FFmpeg/FFprobe inspect media structure and detect sustained black video, long silence, frozen frames, suspicious global audio peaks, and missing streams.
+- FFmpeg/FFprobe inspect media structure and detect sustained black video, long silence, frozen frames, suspicious concentrations of near-full-scale audio samples, and missing streams.
 - Publishing-package rules check resolution, aspect ratio, title, description, URLs, chapters, and caption requirements.
 - UTF-8 SRT and WebVTT files are parsed for timing, ordering, range, overlap, empty text, gaps, and merged timeline coverage.
 - Optional `faster-whisper` can compare locally detected speech intervals with caption coverage. The `tiny.en` CPU/`int8` path has been smoke-tested; model acquisition may require an initial download, while inference runs locally.
 
-FFmpeg analysis is deterministic media processing, not AI. Optional Whisper is disabled by default and is not required for the primary demo or ordinary scans. Core scans use no paid API, platform account, API key, cloud inference, or external media.
+FFmpeg analysis is deterministic media processing, not AI. Optional Whisper is disabled by default and is not required for the primary demo or ordinary scans. Core deterministic scans use no paid API, platform account, API key, cloud inference, or external media. Optional Gemini video-review infrastructure is separately opt-in and sends the selected video to Google only when explicitly enabled.
 
 ## Quick start
 
@@ -53,7 +53,7 @@ This generates `demo/generated/creator-preflight-demo.mp4`, then scans it with t
 - black video near 2–5 seconds;
 - silence near 3–6 seconds;
 - a non-black freeze near 7–10 seconds;
-- one global audio-peak warning;
+- one global near-full-scale audio-density warning from a deliberately hard-limited interval;
 - one title-length recommendation;
 - four valid caption cues covering 100% of the 12-second timeline, with no caption findings.
 
@@ -104,8 +104,22 @@ Install the existing optional dependency with:
 
 Enable transcription in a YAML configuration only when wanted. Defaults remain `enabled: false` and `local_files_only: true`, preventing an unexpected model download. No cloud speech API is used, but acquiring a model for the first time requires an explicit download or a compatible model already present locally.
 
+## Optional Gemini video review infrastructure
+
+Install the isolated provider dependency with:
+
+```sh
+.venv/bin/python -m pip install './backend[ai]'
+```
+
+Set `GEMINI_API_KEY` only in the backend process environment, then enable `ai_review` in a YAML configuration. The default configuration keeps AI review disabled. When enabled, Creator Preflight uploads the video once through Google's Gemini Files API, waits for bounded processing, requests native schema-constrained observations, validates them locally, and attempts to delete the remote file afterward. The key is never accepted from the browser or stored in YAML.
+
+Milestone 11 provides the reusable provider boundary and objective engineering-smoke observations only. It does not implement Promise Check, factual verification, thumbnail comparison, or generic AI recommendations. AI observations are review evidence and cannot block a scan. Deterministic scanning still completes if the optional SDK, key, or provider is unavailable.
+
+The `google-genai` 2.22.0, `gemini-3.7-flash` path has been smoke-tested with an actual generated video upload, native structured observations, timestamp validation, and explicit remote-file cleanup. This verifies that specific integration path, not every Gemini model, account, video size, or codec.
+
 ## Architecture
 
-React sends a local multipart request to FastAPI; FastAPI and the CLI both invoke `PreflightScanner`; the scanner applies validated YAML rules, FFmpeg/FFprobe analysis, caption parsing, and optional local speech comparison. Reports use one typed schema with timestamped findings, explicit check counts, and a deterministic verdict.
+React sends a local multipart request to FastAPI; FastAPI and the CLI both invoke `PreflightScanner`; the scanner applies validated YAML rules, FFmpeg/FFprobe analysis, caption parsing, optional local speech comparison, and explicitly enabled Gemini review. Provider-specific Gemini code remains isolated behind the scanner. Reports use one typed schema with timestamped findings, explicit check counts, provider provenance, and a deterministic verdict.
 
 See [`docs/SPEC.md`](docs/SPEC.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and [`docs/STATUS.md`](docs/STATUS.md) for the product contract and verified status.

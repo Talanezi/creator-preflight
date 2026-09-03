@@ -121,11 +121,11 @@ def evaluate_package_rules(
         if not description:
             finding = _finding(
                 "DESCRIPTION_REQUIRED",
-                FindingSeverity.ERROR,
-                "A description is required for this publishing package.",
+                FindingSeverity.WARNING,
+                "The publishing package does not include a description.",
                 "package.description",
-                "Add a description before publishing.",
-                title="Missing required description",
+                "Add a description so viewers have the intended context before publishing.",
+                title="Description missing",
             )
             findings.append(finding)
         checks.append(_check("description.required", [finding] if finding else []))

@@ -132,7 +132,7 @@ const findings: Finding[] = [
 ];
 
 export const needsReviewReport: PreflightReport = {
-  schema_version: "1.0",
+  schema_version: "1.1",
   verdict: "NEEDS_REVIEW",
   media: { ...media },
   findings,
@@ -150,6 +150,16 @@ export const needsReviewReport: PreflightReport = {
   configuration_profile: "default",
   configuration_source: "typed defaults",
   caption_summary: null,
+  ai_review: {
+    enabled: false,
+    provider: "gemini",
+    model: "gemini-3.7-flash",
+    status: "disabled",
+    observation_count: 0,
+    runtime_seconds: null,
+    cleanup_succeeded: null,
+    reason_code: null,
+  },
   scan_duration_seconds: 0.159,
 };
 

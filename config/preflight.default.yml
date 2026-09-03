@@ -15,8 +15,12 @@ detectors:
   freeze:
     min_duration_seconds: 2.5
     noise_threshold_db: -60.0
+  # Warn only when the decoded maximum is near full scale AND at least 5% of
+  # all decoded samples occupy FFmpeg volumedetect's top 1 dBFS histogram bin.
+  # A single 0 dBFS sample is not treated as evidence of clipping.
   audio_peak:
     warning_threshold_dbfs: -1.0
+    minimum_near_full_scale_sample_fraction: 0.05
   streams:
     expect_video: true
     expect_audio: true
@@ -41,6 +45,7 @@ rules:
     require: true
     maximum_recommended_length: 100
   description:
+    # Missing descriptions are review warnings under the default profile.
     require: true
     required_phrases: []
     validate_urls: true
@@ -65,3 +70,13 @@ transcription:
   speech_gap_minimum_seconds: 2.0
   boundary_tolerance_seconds: 0.3
   adjacent_gap_merge_seconds: 0.5
+
+# Optional server-side Gemini video review. Enabling this sends the video to
+# Google's Gemini Files API and requires GEMINI_API_KEY in the backend process.
+ai_review:
+  enabled: false
+  provider: gemini
+  model: gemini-3.7-flash
+  timeout_seconds: 180.0
+  maximum_observations: 5
+  timestamp_tolerance_seconds: 1.0

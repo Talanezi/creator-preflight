@@ -4,6 +4,8 @@ import pytest
 from pydantic import ValidationError
 
 from creator_preflight.config import (
+    AIReviewConfig,
+    AudioPeakDetectorConfig,
     BlackDetectorConfig,
     CaptionRuleConfig,
     ConfigurationError,
@@ -24,6 +26,10 @@ def test_default_detector_configuration_loads() -> None:
     assert config.detectors.silence.noise_threshold_db == -50.0
     assert config.detectors.freeze.min_duration_seconds == 2.5
     assert config.detectors.audio_peak.warning_threshold_dbfs == -1.0
+    assert config.detectors.audio_peak.minimum_near_full_scale_sample_fraction == 0.05
+    assert config.ai_review.enabled is False
+    assert config.ai_review.provider == "gemini"
+    assert config.ai_review.model == "gemini-3.7-flash"
     assert config.rules.video.minimum_width == 1280
     assert config.rules.title.maximum_recommended_length == 100
     assert config.rules.description.validate_urls is True
@@ -92,6 +98,10 @@ def test_invalid_title_limit_is_rejected() -> None:
         (CaptionRuleConfig, {"maximum_file_size_bytes": 0}),
         (TranscriptionConfig, {"speech_gap_minimum_seconds": 0}),
         (TranscriptionConfig, {"boundary_tolerance_seconds": -0.1}),
+        (AudioPeakDetectorConfig, {"minimum_near_full_scale_sample_fraction": 0}),
+        (AIReviewConfig, {"timeout_seconds": 0}),
+        (AIReviewConfig, {"maximum_observations": 11}),
+        (AIReviewConfig, {"timestamp_tolerance_seconds": -0.1}),
     ],
 )
 def test_invalid_caption_and_transcription_thresholds_are_rejected(model, values) -> None:

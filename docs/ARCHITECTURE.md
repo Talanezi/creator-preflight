@@ -2,7 +2,7 @@
 
 ## Current state
 
-`creator_preflight.media` validates and inspects local media; `creator_preflight.detectors` contains the independent FFmpeg checks; `creator_preflight.rules` parses creator-style chapter lines and validates video/package metadata; `creator_preflight.captions` parses and validates SRT/WebVTT content and performs interval coverage comparisons; and `creator_preflight.engine.PreflightScanner` coordinates one complete scan.
+`creator_preflight.media` validates and inspects local media; `creator_preflight.detectors` contains the independent FFmpeg checks; `creator_preflight.rules` parses creator-style chapter lines and validates video/package metadata; `creator_preflight.captions` parses and validates SRT/WebVTT content and performs interval coverage comparisons; `creator_preflight.ai_review` isolates optional Gemini file upload, structured generation, validation, and cleanup; and `creator_preflight.engine.PreflightScanner` coordinates one complete scan.
 
 The scanner reconciles redundant black-contained freeze findings, sorts final findings deterministically, records every executed check, derives counts, and computes `READY`, `NEEDS_REVIEW`, or `BLOCKED` directly from finding statuses. Caption checks are added only when a caption file is supplied, while the speech-coverage check is added only when optional transcription is enabled and audio exists. The report contains no opaque score. Both `creator_preflight.cli` and the FastAPI unified upload endpoint call this same scanner. The React interface submits the unified multipart request and renders caption findings through its existing category, timeline, and seek behavior.
 
@@ -18,6 +18,16 @@ FastAPI adapter ───┘             │
        │
 React web UI
 ```
+
+When explicitly enabled, the engine also calls one optional provider boundary:
+
+```text
+PreflightScanner ── validated AI observation boundary ── Gemini Files/API
+       │                         │
+       └── deterministic scan    └── review-only normalized findings
+```
+
+The Gemini API key exists only in the backend process environment. AI-disabled scans never invoke the provider. Provider failure becomes a non-blocking, structured unavailable review state and cannot erase deterministic results.
 
 The scanning engine owns input normalization, detector orchestration, finding normalization, deterministic status aggregation, and report serialization. Adapters translate CLI arguments or local HTTP request data into the same engine input and must not duplicate scan rules.
 
@@ -43,6 +53,7 @@ scripts/                 Repository automation scripts
 - `creator_preflight.cli`: thin command-line adapter.
 - `creator_preflight.captions`: deterministic caption parsing, validation, coverage, and speech/caption interval comparison.
 - `creator_preflight.transcription`: optional lazy local faster-whisper adapter.
+- `creator_preflight.ai_review`: optional Gemini SDK adapter, bounded remote file lifecycle, native structured-output validation, and observation normalization boundary.
 
 The `engine`, `models`, `rules`, `detectors`, `media`, `api`, and `cli` boundaries now exist at the scope required through Milestone 3. Rule and detector logic do not depend on FastAPI, CLI formatting, or React. Adapters translate inputs and render results only. FFmpeg/FFprobe execution uses argument arrays rather than a shell, enforces timeouts, captures diagnostics, and converts tool failures into typed application errors.
 
@@ -60,4 +71,6 @@ Configuration is loaded from YAML, validated before scanning, and passed explici
 
 The overall status order is `READY < NEEDS_REVIEW < BLOCKED`. Aggregation is deterministic and independent of presentation. The dependency direction is adapters → engine → domain models/media boundary; the domain layer never imports an adapter.
 
-The core runtime depends on Python packages, Node build tooling for the frontend, and locally installed FFmpeg/FFprobe. It does not depend on network services at scan time. `faster-whisper` is isolated in the `transcription` optional dependency group, imported lazily, and disabled by default. The default `local_files_only` setting prevents an implicit model download; loaded models are reused within the backend process.
+The core runtime depends on Python packages, Node build tooling for the frontend, and locally installed FFmpeg/FFprobe. Deterministic scans do not depend on network services at scan time. `faster-whisper` is isolated in the `transcription` optional dependency group, imported lazily, and disabled by default. The default `local_files_only` setting prevents an implicit model download; loaded models are reused within the backend process.
+
+Gemini support is isolated in the `ai` optional dependency group and disabled by default. When enabled, the backend reads `GEMINI_API_KEY`, uploads the video once, polls provider processing within a configured bound, requests native schema-constrained output, validates observation types and timestamps locally, and attempts explicit remote deletion. Remote file identifiers and secrets are not exposed in findings; only safe provider/model/status provenance is serialized. Gemini observations are warning-level evidence in Milestone 11 and cannot produce `BLOCKED`.

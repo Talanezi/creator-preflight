@@ -3,6 +3,12 @@
 from pathlib import Path
 from time import perf_counter
 
+from creator_preflight.ai_review import (
+    AIObservation,
+    AIReviewError,
+    GeminiVideoReviewer,
+    VideoReviewer,
+)
 from creator_preflight.captions import inspect_caption_file, speech_gap_findings
 from creator_preflight.config import DetectorConfig, PreflightConfig
 from creator_preflight.detectors import (
@@ -14,6 +20,8 @@ from creator_preflight.detectors import (
 )
 from creator_preflight.media import MediaInspector
 from creator_preflight.models import (
+    AIReviewStatus,
+    AIReviewSummary,
     AnomalyScanResult,
     CheckResult,
     Finding,
@@ -113,6 +121,7 @@ class PreflightScanner:
         ffmpeg_binary: str = "ffmpeg",
         timeout_seconds: float = 60,
         transcriber: SpeechTranscriber | None = None,
+        ai_reviewer: VideoReviewer | None = None,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be greater than zero")
@@ -122,6 +131,7 @@ class PreflightScanner:
         self.ffmpeg_binary = ffmpeg_binary
         self.timeout_seconds = timeout_seconds
         self.transcriber = transcriber or WhisperTranscriber()
+        self.ai_reviewer = ai_reviewer or GeminiVideoReviewer()
 
     def scan(
         self, media_path: str | Path, package: PublishingPackage
@@ -181,11 +191,76 @@ class PreflightScanner:
                         finding_codes=[unavailable.code],
                     )
                 )
+        ai_findings: list[Finding] = []
+        ai_checks: list[CheckResult] = []
+        ai_summary = AIReviewSummary(
+            enabled=self.config.ai_review.enabled,
+            provider=self.config.ai_review.provider,
+            model=self.config.ai_review.model,
+            status=AIReviewStatus.DISABLED,
+        )
+        if self.config.ai_review.enabled:
+            try:
+                ai_result = self.ai_reviewer.review(
+                    media_path,
+                    anomaly_result.media.duration_seconds,
+                    self.config.ai_review,
+                )
+                ai_findings = [
+                    _ai_observation_finding(
+                        observation,
+                        provider=ai_result.provider,
+                        model=ai_result.model,
+                    )
+                    for observation in ai_result.observations
+                ]
+                ai_checks.append(
+                    CheckResult(
+                        check_id="ai.review",
+                        passed=not ai_findings,
+                        finding_codes=[finding.code for finding in ai_findings],
+                    )
+                )
+                ai_summary = AIReviewSummary(
+                    enabled=True,
+                    provider=ai_result.provider,
+                    model=ai_result.model,
+                    status=AIReviewStatus.SUCCEEDED,
+                    observation_count=len(ai_result.observations),
+                    runtime_seconds=ai_result.total_seconds,
+                    cleanup_succeeded=ai_result.cleanup_succeeded,
+                )
+            except AIReviewError as exc:
+                unavailable = _ai_review_unavailable_finding(
+                    exc,
+                    provider=self.config.ai_review.provider,
+                    model=self.config.ai_review.model,
+                )
+                ai_findings.append(unavailable)
+                ai_checks.append(
+                    CheckResult(
+                        check_id="ai.review",
+                        passed=False,
+                        finding_codes=[unavailable.code],
+                    )
+                )
+                ai_summary = AIReviewSummary(
+                    enabled=True,
+                    provider=self.config.ai_review.provider,
+                    model=self.config.ai_review.model,
+                    status=(
+                        AIReviewStatus.UNAVAILABLE
+                        if exc.unavailable
+                        else AIReviewStatus.FAILED
+                    ),
+                    reason_code=exc.code,
+                )
         findings = reconcile_findings(
             [
                 *anomaly_result.findings,
                 *package_result.findings,
                 *caption_findings,
+                *ai_findings,
             ]
         )
         findings.sort(key=finding_sort_key)
@@ -196,6 +271,7 @@ class PreflightScanner:
             ),
             *package_result.checks,
             *caption_checks,
+            *ai_checks,
         ]
         passed_count = sum(check.passed for check in checks)
         warning_count = sum(
@@ -225,6 +301,7 @@ class PreflightScanner:
             ),
             configuration_source=self.configuration_source,
             caption_summary=caption_summary,
+            ai_review=ai_summary,
             scan_duration_seconds=perf_counter() - started_at,
         )
 
@@ -346,4 +423,48 @@ def _transcription_unavailable_finding(
             "reason_code": exc.code,
         },
         suggestion="Disable transcription or install/configure a local faster-whisper model, then scan again.",
+    )
+
+
+def _ai_observation_finding(
+    observation: AIObservation, *, provider: str, model: str
+) -> Finding:
+    return Finding(
+        code=f"AI_REVIEW_{observation.observation_type.value.upper()}",
+        severity=FindingSeverity.WARNING,
+        status=FindingStatus.NEEDS_REVIEW,
+        message=observation.explanation,
+        source=f"ai.{provider}",
+        timestamp_start_seconds=observation.start_seconds,
+        timestamp_end_seconds=observation.end_seconds,
+        details={
+            "category": "ai",
+            "title": observation.summary,
+            "observation_type": observation.observation_type.value,
+            "confidence": observation.confidence,
+            "evidence": observation.evidence,
+            "provider": provider,
+            "model": model,
+        },
+        suggestion=observation.suggestion,
+    )
+
+
+def _ai_review_unavailable_finding(
+    exc: AIReviewError, *, provider: str, model: str
+) -> Finding:
+    return Finding(
+        code="AI_REVIEW_UNAVAILABLE",
+        severity=FindingSeverity.WARNING,
+        status=FindingStatus.NEEDS_REVIEW,
+        message=exc.message,
+        source=f"ai.{provider}",
+        details={
+            "category": "ai",
+            "title": "Optional AI review unavailable",
+            "reason_code": exc.code,
+            "provider": provider,
+            "model": model,
+        },
+        suggestion="Review the deterministic findings and retry AI review later if needed.",
     )

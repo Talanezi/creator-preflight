@@ -64,9 +64,16 @@ def test_valid_title_has_no_title_finding(media: MediaInspection) -> None:
 
 
 def test_required_description_absent(media: MediaInspection) -> None:
-    assert "DESCRIPTION_REQUIRED" in _codes(
-        PublishingPackage(title="Title"), media
+    result = evaluate_package_rules(
+        PublishingPackage(title="Title"), media, CreatorRuleConfig()
     )
+    finding = next(
+        finding for finding in result.findings if finding.code == "DESCRIPTION_REQUIRED"
+    )
+
+    assert finding.severity.value == "warning"
+    assert finding.status.value == "NEEDS_REVIEW"
+    assert finding.message == "The publishing package does not include a description."
 
 
 def test_required_description_phrase_absent(media: MediaInspection) -> None:

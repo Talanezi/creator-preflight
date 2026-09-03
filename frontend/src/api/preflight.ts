@@ -1,6 +1,7 @@
 import type {
   CheckResult,
   CaptionSummary,
+  AIReviewSummary,
   Finding,
   MediaInspection,
   PreflightReport,
@@ -163,7 +164,21 @@ function isPreflightReport(value: unknown): value is PreflightReport {
     && typeof value.configuration_profile === "string"
     && isNullableString(value.configuration_source)
     && (value.caption_summary === null || isCaptionSummary(value.caption_summary))
+    && isAIReviewSummary(value.ai_review)
     && isNonnegativeNumber(value.scan_duration_seconds);
+}
+
+function isAIReviewSummary(value: unknown): value is AIReviewSummary {
+  return isRecord(value)
+    && typeof value.enabled === "boolean"
+    && typeof value.provider === "string"
+    && typeof value.model === "string"
+    && (value.status === "disabled" || value.status === "succeeded"
+      || value.status === "unavailable" || value.status === "failed")
+    && isNonnegativeNumber(value.observation_count)
+    && isNullableNumber(value.runtime_seconds)
+    && (value.cleanup_succeeded === null || typeof value.cleanup_succeeded === "boolean")
+    && isNullableString(value.reason_code);
 }
 
 function isCaptionSummary(value: unknown): value is CaptionSummary {

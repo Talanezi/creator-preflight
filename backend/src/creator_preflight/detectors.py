@@ -35,6 +35,8 @@ _FREEZE_START = re.compile(rf"freeze_start:\s*(?P<value>{_NUMBER})")
 _FREEZE_END = re.compile(rf"freeze_end:\s*(?P<value>{_NUMBER})")
 _FREEZE_DURATION = re.compile(rf"freeze_duration:\s*(?P<value>{_NUMBER})")
 _MAX_VOLUME = re.compile(rf"max_volume:\s*(?P<value>{_NUMBER})\s*dB", re.IGNORECASE)
+_SAMPLE_COUNT = re.compile(r"n_samples:\s*(?P<value>\d+)", re.IGNORECASE)
+_HISTOGRAM_0DB = re.compile(r"histogram_0db:\s*(?P<value>\d+)", re.IGNORECASE)
 
 
 class DetectorExecutionError(Exception):
@@ -234,21 +236,53 @@ def inspect_audio_peak(
     measured_peak = float(matches[-1].group("value"))
     if measured_peak < config.warning_threshold_dbfs:
         return []
+    sample_counts = [int(match.group("value")) for match in _SAMPLE_COUNT.finditer(output)]
+    decoded_sample_count = max(sample_counts, default=0)
+    if decoded_sample_count <= 0:
+        raise DetectorExecutionError(
+            "detector_output_invalid",
+            "Audio peak analysis did not return a usable decoded sample count.",
+            details={"detector": "audio_peak"},
+        )
+    histogram_matches = list(_HISTOGRAM_0DB.finditer(output))
+    near_full_scale_sample_count = (
+        int(histogram_matches[-1].group("value")) if histogram_matches else 0
+    )
+    near_full_scale_sample_fraction = (
+        near_full_scale_sample_count / decoded_sample_count
+    )
+    if (
+        near_full_scale_sample_fraction
+        < config.minimum_near_full_scale_sample_fraction
+    ):
+        return []
     return [
         Finding(
             code="AUDIO_PEAK_WARNING",
             severity=FindingSeverity.WARNING,
             status=FindingStatus.NEEDS_REVIEW,
-            message="The decoded audio peak is close to full scale and may merit review.",
+            message=(
+                "A substantial share of decoded audio samples is within the top "
+                "1 dBFS and may indicate aggressive limiting or clipping."
+            ),
             source="audio.peak",
             details={
                 "category": "audio",
-                "title": "Audio peak near full scale",
+                "title": "Sustained near-full-scale audio",
                 "measured_peak_dbfs": measured_peak,
                 "warning_threshold_dbfs": config.warning_threshold_dbfs,
+                "near_full_scale_sample_count": near_full_scale_sample_count,
+                "decoded_sample_count": decoded_sample_count,
+                "near_full_scale_sample_fraction": near_full_scale_sample_fraction,
+                "minimum_near_full_scale_sample_fraction": (
+                    config.minimum_near_full_scale_sample_fraction
+                ),
+                "near_full_scale_bin_lower_bound_dbfs": -1.0,
                 "measurement_scope": "global",
             },
-            suggestion="Review the loudest audio and confirm that no unwanted clipping is audible.",
+            suggestion=(
+                "Review the loudest audio and confirm that the level and limiting are intentional."
+            ),
         )
     ]
 

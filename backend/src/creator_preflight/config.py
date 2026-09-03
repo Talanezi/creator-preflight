@@ -44,11 +44,14 @@ class FreezeDetectorConfig(BaseModel):
 
 
 class AudioPeakDetectorConfig(BaseModel):
-    """Global decoded audio peak warning threshold in dBFS."""
+    """Global decoded near-full-scale density thresholds."""
 
     model_config = ConfigDict(extra="forbid")
 
     warning_threshold_dbfs: float = Field(default=-1.0, ge=-120, le=0)
+    minimum_near_full_scale_sample_fraction: float = Field(
+        default=0.05, gt=0, le=1
+    )
 
 
 class StreamExpectationConfig(BaseModel):
@@ -166,6 +169,19 @@ class TranscriptionConfig(BaseModel):
     adjacent_gap_merge_seconds: float = Field(default=0.5, ge=0, le=10)
 
 
+class AIReviewConfig(BaseModel):
+    """Opt-in server-side Gemini video review settings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    provider: Literal["gemini"] = "gemini"
+    model: str = Field(default="gemini-3.7-flash", min_length=1, max_length=100)
+    timeout_seconds: float = Field(default=180.0, gt=0, le=900)
+    maximum_observations: int = Field(default=5, ge=1, le=10)
+    timestamp_tolerance_seconds: float = Field(default=1.0, ge=0, le=10)
+
+
 class CreatorRuleConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -184,6 +200,7 @@ class PreflightConfig(BaseModel):
     detectors: DetectorConfig = Field(default_factory=DetectorConfig)
     rules: CreatorRuleConfig = Field(default_factory=CreatorRuleConfig)
     transcription: TranscriptionConfig = Field(default_factory=TranscriptionConfig)
+    ai_review: AIReviewConfig = Field(default_factory=AIReviewConfig)
 
 
 class ConfigurationError(Exception):
