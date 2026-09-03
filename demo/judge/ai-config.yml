@@ -1,0 +1,5 @@
+schema_version: 1
+ai_review:
+  enabled: true
+  claim_review:
+    enabled: true

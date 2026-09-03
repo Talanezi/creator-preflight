@@ -108,7 +108,7 @@ export function ScanForm({ inputs, onChange, onRun }: ScanFormProps) {
               <Upload className="drop-icon" aria-hidden="true" />
               <strong>Choose a video or drop it here</strong>
               <span>MP4, MOV, MKV, or WebM</span>
-              <small>The file stays on this Creator Preflight instance.</small>
+              <small>Uploaded to your Creator Preflight backend for this scan.</small>
             </button>
           )}
         </section>

@@ -90,9 +90,11 @@ export function ResultsView({
         </p>
       </header>
 
-      <PromiseSummary report={report} />
-      <ViewerPassSummaryView report={report} />
-      <ClaimReviewSummaryView report={report} />
+      <div className="ai-review-summaries" aria-label="Editorial review summaries">
+        <PromiseSummary report={report} />
+        <ViewerPassSummaryView report={report} />
+        <ClaimReviewSummaryView report={report} />
+      </div>
 
       <div className="review-workspace">
         <section className="media-review" aria-label="Video review">

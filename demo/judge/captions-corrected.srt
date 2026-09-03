@@ -1,0 +1,19 @@
+1
+00:00:00,000 --> 00:00:12,000
+The Eiffel Tower opened in 1889 for the Paris World's Fair.
+
+2
+00:00:12,000 --> 00:00:24,000
+Apollo 11 landed on the Moon in the year 1 9 6 9.
+
+3
+00:00:24,000 --> 00:00:36,000
+These are the two historical moments in today's story.
+
+4
+00:00:36,000 --> 00:00:48,000
+I think both achievements remain inspiring examples of engineering and exploration.
+
+5
+00:00:48,000 --> 00:01:00,000
+Thank you for watching this short Field Notes video.

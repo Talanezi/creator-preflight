@@ -1,156 +1,102 @@
 # Creator Preflight
 
-**Lint your video before you publish it.**
+**Review the finished upload before your audience does.**
 
-Creator Preflight is a local-first quality check for finished creator videos. Give it a video, title, description, optional captions, and optionally a thumbnail for Promise Check; it returns an explainable `READY`, `NEEDS_REVIEW`, or `BLOCKED` report with exact timestamps for reviewable issues.
+Creator Preflight reviews a real finished creator video together with its title, description, captions, and optional thumbnail. It returns an explainable `READY`, `NEEDS_REVIEW`, or `BLOCKED` report, puts evidence at the original video timestamp, and lets the creator click a finding to seek directly to the moment that needs attention.
 
-The web interface keeps the selected video available for local preview, so clicking a timestamped finding or timeline marker seeks directly to that moment. The same Python scanner powers the web API and CLI, and its detector and publishing rules are configurable in YAML.
+It combines four review layers:
 
-## What it checks
+- **Technical integrity** — deterministic FFmpeg/FFprobe checks for media structure, black sections, silence, frozen frames, suspicious near-full-scale audio density, and missing streams.
+- **Promise Check** — optional Gemini review of whether the title and thumbnail match the finished video, plus when the advertised subject begins being substantively addressed.
+- **Final Viewer Pass** — optional Gemini review for high-confidence internal inconsistencies such as narration/graphic conflicts, visible production placeholders, and accidental repetition.
+- **Claim Review** — optional extraction of at most three important public factual claims, verified together with Google Search grounding. Only evidence-backed possible conflicts become warnings, and displayed links come from provider citation metadata.
 
-- FFmpeg/FFprobe inspect media structure and detect sustained black video, long silence, frozen frames, suspicious concentrations of near-full-scale audio samples, and missing streams.
-- Publishing-package rules check resolution, aspect ratio, title, description, URLs, chapters, and caption requirements.
-- UTF-8 SRT and WebVTT files are parsed for timing, ordering, range, overlap, empty text, gaps, and merged timeline coverage.
-- Optional `faster-whisper` can compare locally detected speech intervals with caption coverage. The `tiny.en` CPU/`int8` path has been smoke-tested; model acquisition may require an initial download, while inference runs locally.
-- Optional Gemini Promise Check compares the finished video with its title and optional thumbnail, reports when the advertised subject begins being substantively addressed, and surfaces only evidence-backed alignment issues.
-- Optional Gemini Final Viewer Pass reviews the finished video's visuals and spoken content for high-confidence internal inconsistencies: narration/graphic conflicts, visible production placeholders, and conservatively gated accidental repetition.
-- Optional Gemini Claim Review selects at most three important public factual claims and checks them together with Google Search grounding. Only sufficiently evidenced possible conflicts become review findings, with provider citations.
+Publishing rules also validate resolution, aspect ratio, title, description, URLs, chapters, and caption requirements. UTF-8 SRT and WebVTT files are parsed for timing, ordering, range, overlap, gaps, and merged coverage. Optional local Whisper can compare speech intervals with caption coverage.
 
-FFmpeg analysis is deterministic media processing, not AI. Optional Whisper is disabled by default and is not required for the primary demo or ordinary scans. Core deterministic scans use no paid API, platform account, API key, cloud inference, or external media. Optional Gemini video-review infrastructure is separately opt-in and sends the selected video to Google only when explicitly enabled.
+FFmpeg analysis is deterministic media processing, not AI. Core scanning is local-first and requires no API key. Gemini review is opt-in, probabilistic review evidence: when enabled, the backend sends the video and optional thumbnail to Google once per scan, keeps the API key server-side, and attempts remote cleanup. AI findings are review-only and never block publication by themselves.
 
 ## Quick start
 
 Prerequisites:
 
-- Python 3.10 or newer
+- Python 3.10+
 - FFmpeg and FFprobe on `PATH`
 - Node.js and npm for the web interface
 
-Install the backend from the repository root:
+From the repository root:
 
 ```sh
 python3 -m venv .venv
 .venv/bin/python -m pip install './backend[dev]'
+cd frontend && npm install && cd ..
 ```
 
-Install the frontend:
-
-```sh
-cd frontend
-npm install
-cd ..
-```
-
-## Reproducible demo
-
-The primary demo uses only generated media and tracked text fixtures. It does not require Whisper or a network connection after installation.
-
-Run the complete CLI demo with one command:
+Run the network-free deterministic demo:
 
 ```sh
 ./scripts/run_demo.sh
 ```
 
-This generates `demo/generated/creator-preflight-demo.mp4`, then scans it with the tracked title, description, captions, and default YAML configuration. Expected results are:
+It generates a 12-second local fixture and reports the known 2–5 second black section, 3–6 second silence, 7–10 second non-black freeze, a deliberately hard-limited audio warning, and one title recommendation. Expected result: `NEEDS_REVIEW`, 20 checks, 15 passed, 5 warnings, 0 critical.
 
-- black video near 2–5 seconds;
-- silence near 3–6 seconds;
-- a non-black freeze near 7–10 seconds;
-- one global near-full-scale audio-density warning from a deliberately hard-limited interval;
-- one title-length recommendation;
-- four valid caption cues covering 100% of the 12-second timeline, with no caption findings.
-
-The expected verdict is `NEEDS_REVIEW` with 20 checks run, 15 passed, 5 warnings, and 0 critical findings. The wrapper exits successfully after this expected review result; the underlying CLI uses exit code `1` for a completed scan containing findings.
-
-To generate only the video:
-
-```sh
-.venv/bin/python scripts/generate_demo_fixture.py
-```
-
-To run the same scan directly:
-
-```sh
-.venv/bin/creator-preflight scan demo/generated/creator-preflight-demo.mp4 \
-  --title "$(tr -d '\r\n' < demo/title.txt)" \
-  --description-file demo/description.txt \
-  --captions demo/captions.srt \
-  --config config/preflight.default.yml
-```
-
-Add `--json` for machine-readable output. See [`demo/README.md`](demo/README.md) for the fixture package details.
-
-## Run the web app
-
-Start the local FastAPI backend in one terminal:
+Run the web application in two terminals:
 
 ```sh
 .venv/bin/uvicorn creator_preflight.api:app --app-dir backend/src --reload --host 127.0.0.1 --port 8000
 ```
-
-Start the frontend in another:
 
 ```sh
 cd frontend
 npm run dev -- --host 127.0.0.1
 ```
 
-Open `http://127.0.0.1:5173`, select the generated video and `demo/captions.srt`, then paste the tracked title and description. Vite proxies the scan request to the local backend. Upload copies are temporary and removed after each request.
+Open `http://127.0.0.1:5173`. Vite proxies the multipart scan request to FastAPI. Backend upload copies are temporary and removed after each request.
 
-## Optional local speech analysis
+## Judge demo package
 
-Install the existing optional dependency with:
+On macOS, generate the paired 60-second creator-style packages:
 
 ```sh
-.venv/bin/python -m pip install './backend[transcription]'
+.venv/bin/python scripts/prepare_judge_demo.py
 ```
 
-Enable transcription in a YAML configuration only when wanted. Defaults remain `enabled: false` and `local_files_only: true`, preventing an unexpected model download. No cloud speech API is used, but acquiring a model for the first time requires an explicit download or a compatible model already present locally.
+The command prints every generated and tracked input path. The defective cut contains a 12–15 second black export gap, a delayed title promise, a visible unfinished map placeholder, and a deliberately incorrect Apollo 11 date. The corrected cut removes those defects. Generated media stays under ignored `demo/generated/judge/`; no copyrighted media is used or committed.
 
-## Optional Gemini video review infrastructure
+See [`docs/DEMO.md`](docs/DEMO.md) for the 90–120 second judge sequence and [`docs/SUBMISSION.md`](docs/SUBMISSION.md) for factual Devpost draft material.
 
-Install the isolated provider dependency with:
+## Optional AI review
+
+Install the isolated dependency:
 
 ```sh
 .venv/bin/python -m pip install './backend[ai]'
 ```
 
-Set `GEMINI_API_KEY` only in the backend process environment, then enable `ai_review.enabled` in a YAML configuration. The default configuration keeps AI review disabled. For the web API, point the backend to that file with `CREATOR_PREFLIGHT_CONFIG`; the CLI already accepts it through `--config`. When enabled, Creator Preflight uploads the video once through Google's Gemini Files API, includes an optional validated PNG/JPEG thumbnail in the same review request, validates native schema-constrained output locally, and attempts to delete the remote file afterward. The key is never accepted from the browser or stored in YAML.
+Set `GEMINI_API_KEY` only in the backend process environment and enable `ai_review.enabled` in a YAML configuration. For the web API, point the backend at that file with `CREATOR_PREFLIGHT_CONFIG`; the CLI accepts `--config`. The tracked judge profile is `demo/judge/ai-config.yml`. Claim Review is independently opt-in.
 
-Promise Check infers the viewer promise, identifies the approximate first substantive delivery timestamp, and reviews title/video and optional thumbnail/video alignment. Its default application policy warns when substantive delivery begins after 20 seconds and normalizes only specific supported issues with confidence of at least 0.70 plus concrete evidence. It does not score engagement, predict performance, or generate titles/thumbnails. AI evidence cannot block a scan, and deterministic scanning still completes if the optional SDK, key, or provider is unavailable.
+The verified provider path is `google-genai` 2.22.0 with `gemini-3.7-flash`, Gemini Files API upload, native structured output, Google Search grounding metadata, Pydantic validation, bounded waits, and explicit remote deletion. This verifies that specific model/account path—not every model, device, codec, or video size.
 
-Final Viewer Pass uses a separate validated task schema and reports only supported internal inconsistencies with concrete evidence at confidence 0.75 or higher. It does not decide which conflicting statement is factually correct and does not offer generic pacing, hook, or creative advice. Promise Check and Final Viewer Pass make separate structured requests while reusing one Gemini video upload per scan.
-
-Claim Review is independently disabled by default. When enabled, it extracts at most three important externally verifiable claims from that same uploaded video, then verifies all selected claims in one text-only request with Google Search grounding. Source links come only from provider citation metadata; missing citation evidence becomes `insufficient_evidence`, not a warning. Claim Review is a cautious pre-publish aid, not certification that an entire video is factual.
-
-On macOS, generate the narrated controlled Claim Review fixture with:
+## Optional local speech analysis
 
 ```sh
-.venv/bin/python scripts/generate_claim_fixture.py
+.venv/bin/python -m pip install './backend[transcription]'
 ```
 
-The ignored 36-second fixture contains one supported historical date, one deliberately conflicting date, and one subjective statement that should not be selected.
-
-Generate the small, copyright-free Promise Check validation package with:
-
-```sh
-.venv/bin/python scripts/generate_promise_fixture.py
-```
-
-This creates ignored local output under `demo/generated/`: a 36-second video with an unrelated 0–12 second creator intro followed by explicit blue-light/sleep content, plus an aligned PNG thumbnail.
-
-Generate the narrated, copyright-free Viewer Pass controls on macOS with:
-
-```sh
-PYTHONPATH=backend/src .venv/bin/python scripts/generate_viewer_fixture.py
-```
-
-The clean 45-second fixture keeps spoken and visible launch-year information consistent. The problematic 48-second fixture includes a spoken `2021`/visible `2020` conflict, a visible `TODO REPLACE THIS CHART` placeholder, and an immediately duplicated closing segment. These are validation fixtures, not bundled media.
-
-The `google-genai` 2.22.0, `gemini-3.7-flash` path has been smoke-tested with an actual generated video upload, native structured observations, timestamp validation, and explicit remote-file cleanup. This verifies that specific integration path, not every Gemini model, account, video size, or codec.
+Transcription defaults to disabled with `local_files_only: true`, so ordinary scans do not download a model. The `tiny.en` CPU/`int8` path was smoke-tested with `faster-whisper` 1.2.1. Initial model acquisition may require a download; inference itself is local. No cloud speech API is used.
 
 ## Architecture
 
-React sends a local multipart request to FastAPI; FastAPI and the CLI both invoke `PreflightScanner`; the scanner applies validated YAML rules, FFmpeg/FFprobe analysis, caption parsing, optional local speech comparison, and explicitly enabled Gemini Promise Check, Final Viewer Pass, and Claim Review. Provider-specific Gemini file lifecycle and grounding code remains isolated behind task-specific validated boundaries. Reports use one typed schema with timestamped findings, positive/abstaining AI summaries, explicit check counts, provider provenance, and a deterministic verdict.
+```text
+React web app ─┐
+               ├─ FastAPI / CLI ─ PreflightScanner ─ typed PreflightReport
+CLI ───────────┘                    ├─ FFmpeg + package + caption checks
+                                    ├─ optional local Whisper
+                                    └─ optional shared Gemini upload session
+                                       ├─ Promise Check
+                                       ├─ Final Viewer Pass
+                                       └─ Claim extraction → one grounded search request
+```
 
-See [`docs/SPEC.md`](docs/SPEC.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and [`docs/STATUS.md`](docs/STATUS.md) for the product contract and verified status.
+The API and CLI share the same scanner and validated YAML configuration. Provider-specific lifecycle and grounding code stays behind task-specific Pydantic trust boundaries. A Gemini failure does not erase deterministic results or fabricate an AI pass.
+
+See [`docs/SPEC.md`](docs/SPEC.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and [`docs/STATUS.md`](docs/STATUS.md) for the exact contract, implementation boundaries, and verified release status.

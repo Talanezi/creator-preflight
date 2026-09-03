@@ -97,7 +97,7 @@ export function App() {
       <header className="app-header">
         <strong className="brand-name">Creator Preflight</strong>
         <div className="header-actions">
-          <span className="local-indicator"><HardDrive aria-hidden="true" /> Local analysis</span>
+          <span className="local-indicator"><HardDrive aria-hidden="true" /> Local workspace</span>
           {view !== "input" && (
             <button className="header-action" type="button" onClick={reset}>New scan</button>
           )}
