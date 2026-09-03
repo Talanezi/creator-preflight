@@ -17,12 +17,14 @@ describe("preflight API client", () => {
     }));
     const video = new File(["video"], "real video.mp4", { type: "video/mp4" });
     const captions = new File(["WEBVTT"], "captions.vtt", { type: "text/vtt" });
+    const thumbnail = new File(["png"], "thumbnail.png", { type: "image/png" });
 
     const report = await scanPreflight({
       video,
       title: "Exact title",
       description: "First line\nSecond line",
       captions,
+      thumbnail,
     });
 
     expect(requestUrl).toBe("/api/v1/preflight/scan");
@@ -32,6 +34,7 @@ describe("preflight API client", () => {
     const form = requestInit?.body as FormData;
     const uploadedVideo = form.get("file");
     const uploadedCaptions = form.get("captions");
+    const uploadedThumbnail = form.get("thumbnail");
     expect(uploadedVideo).toBeInstanceOf(File);
     expect((uploadedVideo as File).name).toBe("real video.mp4");
     expect((uploadedVideo as File).size).toBe(video.size);
@@ -40,10 +43,12 @@ describe("preflight API client", () => {
     expect(uploadedCaptions).toBeInstanceOf(File);
     expect((uploadedCaptions as File).name).toBe("captions.vtt");
     expect((uploadedCaptions as File).size).toBe(captions.size);
+    expect(uploadedThumbnail).toBeInstanceOf(File);
+    expect((uploadedThumbnail as File).name).toBe("thumbnail.png");
     expect(report).toEqual(needsReviewReport);
   });
 
-  it("omits captions when none were selected", async () => {
+  it("omits optional captions and thumbnail when none were selected", async () => {
     let body: FormData | undefined;
     vi.stubGlobal("fetch", vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
       body = init?.body as FormData;
@@ -57,6 +62,7 @@ describe("preflight API client", () => {
     });
 
     expect(body?.has("captions")).toBe(false);
+    expect(body?.has("thumbnail")).toBe(false);
   });
 
   it("surfaces a safe structured invalid-media error", async () => {
@@ -110,6 +116,18 @@ describe("preflight API client", () => {
     });
 
     expect(report.caption_summary).toEqual(captionReport.caption_summary);
+  });
+
+  it("rejects a malformed Promise Check summary", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({
+      ...needsReviewReport,
+      promise_check: { ...needsReviewReport.promise_check, status: "pretend_aligned" },
+    })));
+    await expect(scanPreflight({
+      video: new File(["video"], "video.mp4", { type: "video/mp4" }),
+      title: "Title",
+      description: "Description",
+    })).rejects.toMatchObject({ code: "invalid_response" });
   });
 });
 

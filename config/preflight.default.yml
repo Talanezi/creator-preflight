@@ -80,3 +80,11 @@ ai_review:
   timeout_seconds: 180.0
   maximum_observations: 5
   timestamp_tolerance_seconds: 1.0
+  # Promise Check uses the model only to identify evidence and timing. Creator
+  # Preflight emits a delay warning only when substantive delivery begins after
+  # this transparent application threshold, and suppresses speculative issues.
+  promise_check:
+    enabled: true
+    delay_warning_seconds: 20.0
+    minimum_issue_confidence: 0.70
+    maximum_thumbnail_file_size_bytes: 5000000

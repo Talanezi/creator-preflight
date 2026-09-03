@@ -1,4 +1,6 @@
 import json
+import struct
+import zlib
 from pathlib import Path
 
 import pytest
@@ -178,3 +180,24 @@ def test_cli_malformed_captions_appear_in_human_report(
     assert "NEEDS REVIEW" in captured.out
     assert "Caption file could not be parsed cleanly" in captured.out
     assert captured.err == ""
+
+
+def test_cli_accepts_valid_thumbnail_without_enabling_ai(
+    video_with_audio: Path, ready_config_path: Path, tmp_path: Path, capsys
+) -> None:
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    thumbnail = tmp_path / "thumbnail.png"
+    thumbnail.write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(b"\x00\x00\x00\x00"))
+        + chunk(b"IEND", b"")
+    )
+    exit_code = main([
+        *_base_args(video_with_audio, ready_config_path),
+        "--thumbnail", str(thumbnail), "--json",
+    ])
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["promise_check"]["status"] == "disabled"

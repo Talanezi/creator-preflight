@@ -2,9 +2,9 @@
 
 ## Current milestone
 
-Milestone 11 — Gemini multimodal video-intelligence infrastructure.
+Milestone 12 — Promise Check.
 
-Status: completed on 2026-09-03 after real `gemini-3.7-flash` Files API and structured video-understanding validation.
+Status: completed on 2026-09-03 after real aligned, mismatched-title, thumbnail-multimodal, and professional-video `gemini-3.7-flash` validation.
 
 ## Completed
 
@@ -81,6 +81,12 @@ Status: completed on 2026-09-03 after real `gemini-3.7-flash` Files API and stru
 - `PreflightScanner` remains the single orchestrator; enabled AI observations become review-only normalized findings, while disabled or unavailable AI cannot invoke or break deterministic scanning.
 - Preflight report schema 1.1 adds safe AI provider/model/status/runtime/cleanup provenance without exposing an API key, remote file identifier, raw prompt, raw response, or provider traceback.
 - Copyright-free 12-second Gemini smoke fixture generator creates three known four-second color, shape-position, and audio-tone states in a generated 640×360 video under 300 KB.
+- Task-specific Promise Check trust boundary with inferred promise, first substantive delivery evidence/time, bounded delivery and thumbnail-alignment enums, confidence, and tightly enumerated issue observations.
+- Transparent Promise policy: a delay warning begins only after 20 seconds; editorial issues require at least 0.70 confidence and specific evidence; all normalized AI findings remain review-only.
+- Optional bounded PNG/JPEG thumbnail input is supported by the shared package model, CLI, FastAPI multipart endpoint, and frontend, with content validation, preview cleanup, and request-temporary storage only.
+- Typed report schema 1.2 includes a compact Promise summary that distinguishes aligned, needs-review, unavailable, disabled, and not-evaluable outcomes without fabricating a score or finding.
+- The React results view renders positive Promise evidence and address time; editorial findings use the existing filters, timeline, and click-to-seek behavior.
+- Deterministic 36-second Promise fixture generator creates an unrelated 0–12 second creator intro, explicit blue-light/sleep content from 12 seconds onward, and an aligned 640×360 PNG thumbnail without tracking generated media.
 
 ## Not implemented
 
@@ -108,7 +114,7 @@ None known.
 - URL validation reports only obvious syntax errors in HTTP(S)/`www.`-style tokens. It does not resolve, request, classify, or establish the safety of a URL.
 - CLI exit code 1 represents a completed scan with either `NEEDS_REVIEW` or `BLOCKED`; it is not a runtime crash.
 - Gemini review is optional cloud processing: when enabled, the selected video leaves the local Creator Preflight instance and is sent to Google. Provider observations are probabilistic review evidence, not deterministic truth.
-- Milestone 11 validates only objective infrastructure-smoke observation types. Promise Check, factual verification, thumbnail comparison, and general editorial review are not implemented.
+- Promise Check is probabilistic editorial evidence. It does not predict retention/virality, fact-check claims, generate package assets, or perform a generic final-viewer review.
 - The adapter attempts explicit remote deletion, but provider cleanup failure cannot override a successful review; Gemini Files API uploads otherwise have the provider's temporary retention lifecycle.
 
 ## Known frontend limitations
@@ -230,3 +236,11 @@ None known.
 - Milestone 11 continuation deterministic release gate — clean control remained `READY` with no findings and AI disabled; missing description remained `NEEDS_REVIEW` with zero critical findings; the anomaly demo retained 15 passed, 5 warnings, black 2–5 seconds, silence 3–6 seconds, freeze 7–10 seconds, and calibrated near-full-scale audio behavior.
 - Milestone 11 continuation `.venv/bin/python -m compileall -q backend/src scripts` and `git diff --check` — passed. `.env.local` remained ignored and untracked; diff-level secret, generated-fixture tracking, and repository hygiene checks passed without exposing credential contents.
 - Milestone 11 `.venv/bin/python -m compileall -q backend/src scripts` and `git diff --check` — passed. Diff secret-pattern and tracked-artifact checks found no API key, `.env.local`, generated Gemini video, remote file identifier, or provider cache staged/tracked.
+- Milestone 12 focused backend validation — 42 Promise/AI/API tests passed, 0 failed; frontend validation reached 28 tests passed, 0 failed, and the TypeScript/Vite production build passed.
+- Real aligned Promise Check — generated 36.0-second video plus aligned PNG; Gemini inferred “An explanation of how and why blue light exposure disrupts sleep patterns,” found substantive delivery at 12.0 seconds, marked title and thumbnail aligned at 0.70 confidence, emitted zero Promise findings, and cleaned up the remote file. Upload 1.618s, processing 2.238s, generation 10.646s, total AI 14.894s.
+- Real mismatched-title Promise Check — title “How to Bake Sourdough Bread at Home” against the blue-light video produced `AI_TITLE_CONTENT_MISMATCH` at 0.0–36.0 seconds with direct on-screen evidence and 0.99 confidence; final result `NEEDS_REVIEW`, 14 passed, 1 warning, 0 critical. Upload 1.691s, processing 2.244s, generation 10.371s, total AI 14.718s. One intervening transient provider generation failure exercised the non-blocking unavailable path before the successful conservative retry.
+- Optional professional-video Promise Check — the local approximately 9:50 Dasani creator video returned `READY`; inferred promise was an explanation of why Dasani failed and left the UK, substantive delivery began at 16.5 seconds, overall delivery was aligned at 0.85 confidence, and no findings were emitted. Upload 78.383s, processing 20.991s, generation 29.080s, total AI 128.911s; explicit cleanup succeeded.
+- M11 shared-provider regression after task generalization — the 12-second smoke video again returned the three expected 0.0–3.5, 3.5–7.5, and 7.5–11.0 visual observations at 0.99 confidence; total AI time 10.820s and cleanup succeeded.
+- Milestone 12 deterministic regression — clean control `READY` (14/14 passed); missing-description-only `NEEDS_REVIEW` (13 passed, 1 warning, 0 critical); missing-key Promise path `NEEDS_REVIEW` with only `AI_REVIEW_UNAVAILABLE`; one-command anomaly demo retained 15 passed, 5 warnings, 0 critical and the established 2–5 black, 3–6 silence, 7–10 freeze, calibrated audio, and title findings.
+- Milestone 12 complete backend suite — 146 passed, 0 failed, with 1 upstream Starlette TestClient deprecation warning. Complete frontend suite — 2 files and 28 tests passed, 0 failed. TypeScript compilation and Vite production build passed with 1,825 modules transformed.
+- Milestone 12 `.venv/bin/python -m compileall -q backend/src scripts`, `sh -n scripts/run_demo.sh`, and `git diff --check` — passed. `.env.local` remained ignored/untracked, generated Promise media remained ignored, and the diff-level API-key pattern check found no credential.

@@ -19,6 +19,7 @@ import {
   formatBytes,
   formatDuration,
   formatInterval,
+  formatTimecode,
 } from "../utils/format";
 
 interface ResultsViewProps {
@@ -39,6 +40,7 @@ const categoryIcons = {
   package: Tag,
   captions: ScanLine,
   ai: ScanLine,
+  editorial: ScanLine,
 };
 
 export function ResultsView({
@@ -86,6 +88,8 @@ export function ResultsView({
           <strong>{report.critical_count}</strong> critical
         </p>
       </header>
+
+      <PromiseSummary report={report} />
 
       <div className="review-workspace">
         <section className="media-review" aria-label="Video review">
@@ -160,6 +164,35 @@ export function ResultsView({
         </section>
       </div>
     </main>
+  );
+}
+
+function PromiseSummary({ report }: { report: PreflightReport }) {
+  const promise = report.promise_check;
+  const labels = {
+    disabled: "Not run",
+    aligned: "Aligned",
+    needs_review: "Needs review",
+    not_evaluable: "Not evaluable",
+    unavailable: "Unavailable",
+  } as const;
+  return (
+    <section className={`promise-summary promise-${promise.status}`} aria-labelledby="promise-title">
+      <div>
+        <h2 id="promise-title">Promise Check</h2>
+        <strong>{labels[promise.status]}</strong>
+      </div>
+      {promise.inferred_promise && (
+        <p><span>Promise</span>{promise.inferred_promise}</p>
+      )}
+      {promise.first_substantive_address_seconds !== null && (
+        <p><span>Addressed by</span><b>{formatTimecode(promise.first_substantive_address_seconds)}</b></p>
+      )}
+      {promise.thumbnail_alignment && (
+        <p><span>Thumbnail</span>{capitalize(promise.thumbnail_alignment.replaceAll("_", " "))}</p>
+      )}
+      {!promise.inferred_promise && promise.explanation && <p>{promise.explanation}</p>}
+    </section>
   );
 }
 
@@ -293,6 +326,8 @@ function evidenceEntries(finding: Finding): Array<[string, string]> {
   if (typeof details.confidence === "number") evidence.push(["AI confidence", `${Math.round(details.confidence * 100)}%`]);
   if (typeof details.provider === "string") evidence.push(["AI provider", details.provider]);
   if (typeof details.model === "string") evidence.push(["AI model", details.model]);
+  if (typeof details.inferred_promise === "string") evidence.push(["Inferred promise", details.inferred_promise]);
+  if (typeof details.delay_warning_seconds === "number") evidence.push(["Promise window", `${details.delay_warning_seconds.toFixed(1)} sec`]);
   return evidence;
 }
 

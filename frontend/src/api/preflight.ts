@@ -2,6 +2,7 @@ import type {
   CheckResult,
   CaptionSummary,
   AIReviewSummary,
+  PromiseCheckSummary,
   Finding,
   MediaInspection,
   PreflightReport,
@@ -12,6 +13,7 @@ export interface PreflightScanInput {
   title: string;
   description: string;
   captions?: File | null;
+  thumbnail?: File | null;
 }
 
 interface StructuredErrorResponse {
@@ -43,6 +45,7 @@ export async function scanPreflight(
   form.append("title", input.title);
   form.append("description", input.description);
   if (input.captions) form.append("captions", input.captions, input.captions.name);
+  if (input.thumbnail) form.append("thumbnail", input.thumbnail, input.thumbnail.name);
 
   let response: Response;
   try {
@@ -100,6 +103,13 @@ export function errorPresentation(error: unknown): { title: string; message: str
         title: "This file could not be analyzed",
         message: error.message,
         detail: "Choose a readable, non-empty media file and try again.",
+      };
+    }
+    if (error.code.startsWith("thumbnail_")) {
+      return {
+        title: "This thumbnail could not be used",
+        message: error.message,
+        detail: "Choose a valid PNG or JPEG within the configured size limit.",
       };
     }
     return {
@@ -165,6 +175,7 @@ function isPreflightReport(value: unknown): value is PreflightReport {
     && isNullableString(value.configuration_source)
     && (value.caption_summary === null || isCaptionSummary(value.caption_summary))
     && isAIReviewSummary(value.ai_review)
+    && isPromiseCheckSummary(value.promise_check)
     && isNonnegativeNumber(value.scan_duration_seconds);
 }
 
@@ -173,12 +184,29 @@ function isAIReviewSummary(value: unknown): value is AIReviewSummary {
     && typeof value.enabled === "boolean"
     && typeof value.provider === "string"
     && typeof value.model === "string"
-    && (value.status === "disabled" || value.status === "succeeded"
+    && (value.status === "disabled" || value.status === "not_run" || value.status === "succeeded"
       || value.status === "unavailable" || value.status === "failed")
     && isNonnegativeNumber(value.observation_count)
     && isNullableNumber(value.runtime_seconds)
     && (value.cleanup_succeeded === null || typeof value.cleanup_succeeded === "boolean")
     && isNullableString(value.reason_code);
+}
+
+function isPromiseCheckSummary(value: unknown): value is PromiseCheckSummary {
+  return isRecord(value)
+    && (value.status === "disabled" || value.status === "aligned"
+      || value.status === "needs_review" || value.status === "not_evaluable"
+      || value.status === "unavailable")
+    && isNullableString(value.inferred_promise)
+    && isNullableNumber(value.first_substantive_address_seconds)
+    && isNullableString(value.first_substantive_address_evidence)
+    && (value.overall_delivery === null || value.overall_delivery === "aligned"
+      || value.overall_delivery === "partial" || value.overall_delivery === "mismatched"
+      || value.overall_delivery === "not_evaluable")
+    && isNullableString(value.explanation)
+    && isNullableConfidence(value.confidence)
+    && (value.thumbnail_alignment === null || value.thumbnail_alignment === "aligned"
+      || value.thumbnail_alignment === "mismatched" || value.thumbnail_alignment === "not_evaluable");
 }
 
 function isCaptionSummary(value: unknown): value is CaptionSummary {
@@ -254,6 +282,10 @@ function isNonnegativeNumber(value: unknown): value is number {
 
 function isNullablePercentage(value: unknown): value is number | null {
   return value === null || (isNonnegativeNumber(value) && value <= 100);
+}
+
+function isNullableConfidence(value: unknown): value is number | null {
+  return value === null || (isNonnegativeNumber(value) && value <= 1);
 }
 
 function isJsonObject(value: Record<string, unknown>): boolean {

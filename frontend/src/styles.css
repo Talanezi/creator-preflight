@@ -177,6 +177,7 @@ svg { flex: 0 0 auto; }
 .field-label { display: flex; align-items: center; gap: 7px; }
 .field-label svg { width: 16px; color: var(--muted); }
 .caption-selection { min-width: 0; max-width: 42%; display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.thumbnail-selection img { width: 44px; height: 30px; object-fit: cover; border-radius: 3px; }
 .primary-button, .secondary-button, .icon-button {
   display: inline-flex;
   align-items: center;
@@ -227,6 +228,24 @@ svg { flex: 0 0 auto; }
   padding: 0 2px 24px;
   border-bottom: 1px solid var(--line-strong);
 }
+.promise-summary {
+  margin: 0 0 28px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  color: var(--quiet);
+}
+.promise-summary > div { min-width: 130px; }
+.promise-summary h2 { margin: 0 0 4px; font-size: 14px; color: var(--text); }
+.promise-summary strong { color: var(--text); font-size: 13px; }
+.promise-aligned strong { color: var(--pass); }
+.promise-needs_review strong, .promise-unavailable strong { color: var(--warning); }
+.promise-summary p { margin: 0; font-size: 13px; line-height: 1.45; }
+.promise-summary p span { display: block; margin-bottom: 2px; color: var(--quiet); font-size: 11px; }
+.promise-summary p b { color: var(--text); font-variant-numeric: tabular-nums; }
 .file-identity { grid-area: file; min-width: 0; }
 .file-identity h1 {
   margin: 0;
@@ -414,6 +433,7 @@ svg { flex: 0 0 auto; }
   .selected-file { min-height: 250px; grid-template-columns: auto minmax(0, 1fr) auto; padding: 24px 18px; }
   .captions-field { align-items: flex-start; flex-direction: column; }
   .caption-selection { max-width: 100%; }
+  .promise-summary { align-items: flex-start; flex-direction: column; gap: 12px; }
   .file-identity h1 { font-size: 24px; }
   .file-identity p { font-size: 12px; }
   .result-status h2 { font-size: 21px; }

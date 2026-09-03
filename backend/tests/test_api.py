@@ -1,4 +1,6 @@
 from pathlib import Path
+import struct
+import zlib
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,6 +11,17 @@ from creator_preflight import api as api_module
 from creator_preflight.detectors import DetectorExecutionError
 
 client = TestClient(app)
+
+
+def _tiny_png() -> bytes:
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(b"\x00\x00\x00\x00"))
+        + chunk(b"IEND", b"")
+    )
 
 
 def test_api_upload_success(video_with_audio: Path) -> None:
@@ -65,7 +78,7 @@ def test_unified_api_scan_returns_preflight_report(video_with_audio: Path) -> No
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["schema_version"] == "1.1"
+    assert payload["schema_version"] == "1.2"
     assert payload["ai_review"]["status"] == "disabled"
     assert payload["verdict"] == "BLOCKED"
     assert payload["media"]["width"] == 160
@@ -88,7 +101,7 @@ def test_unified_api_anomaly_report_matches_real_frontend_contract(
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["schema_version"] == "1.1"
+    assert payload["schema_version"] == "1.2"
     assert payload["ai_review"]["status"] == "disabled"
     assert payload["verdict"] == "NEEDS_REVIEW"
     assert payload["media"]["width"] == 1280
@@ -187,6 +200,66 @@ def test_caption_upload_size_limit_matches_scanner_report_behavior(
     assert parse_finding["details"]["issues"][0]["message"] == (
         "Caption file exceeds the configured size limit."
     )
+
+
+def test_api_accepts_png_thumbnail_and_cleans_temporary_file(
+    video_with_audio: Path, monkeypatch
+) -> None:
+    created_paths: list[Path] = []
+
+    def recording_temporary_directory(*args, **kwargs):
+        temporary = RealTemporaryDirectory(*args, **kwargs)
+        created_paths.append(Path(temporary.name))
+        return temporary
+
+    monkeypatch.setattr(api_module, "TemporaryDirectory", recording_temporary_directory)
+    with video_with_audio.open("rb") as media_file:
+        response = client.post(
+            "/api/v1/preflight/scan",
+            files={
+                "file": ("video.mp4", media_file, "video/mp4"),
+                "thumbnail": ("thumbnail.png", _tiny_png(), "image/png"),
+            },
+            data={"title": "Title", "description": "Description"},
+        )
+    assert response.status_code == 200
+    assert response.json()["promise_check"]["status"] == "disabled"
+    assert created_paths and all(not path.exists() for path in created_paths)
+
+
+def test_api_rejects_corrupt_thumbnail_cleanly(video_with_audio: Path) -> None:
+    with video_with_audio.open("rb") as media_file:
+        response = client.post(
+            "/api/v1/preflight/scan",
+            files={
+                "file": ("video.mp4", media_file, "video/mp4"),
+                "thumbnail": ("thumbnail.png", b"not an image", "image/png"),
+            },
+            data={"title": "Title", "description": "Description"},
+        )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "thumbnail_invalid"
+
+
+def test_api_rejects_thumbnail_above_configured_limit(
+    video_with_audio: Path, monkeypatch
+) -> None:
+    from creator_preflight.config import PreflightConfig
+
+    config = PreflightConfig()
+    config.ai_review.promise_check.maximum_thumbnail_file_size_bytes = 4
+    monkeypatch.setattr(api_module, "_api_config", lambda: (config, "test config"))
+    with video_with_audio.open("rb") as media_file:
+        response = client.post(
+            "/api/v1/preflight/scan",
+            files={
+                "file": ("video.mp4", media_file, "video/mp4"),
+                "thumbnail": ("thumbnail.png", _tiny_png(), "image/png"),
+            },
+            data={"title": "Title", "description": "Description"},
+        )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "thumbnail_too_large"
 
 
 def test_detector_timeout_uses_gateway_timeout_response(

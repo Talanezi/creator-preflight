@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import os
 import time
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Mapping, Protocol
+from typing import Callable, Generic, Mapping, Protocol, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
@@ -103,6 +104,21 @@ class AIReviewError(Exception):
 
 
 ClientFactory = Callable[[str, int], object]
+StructuredModel = TypeVar("StructuredModel", bound=BaseModel)
+
+
+@dataclass(frozen=True)
+class StructuredAIReviewResult(Generic[StructuredModel]):
+    """Validated task output plus provider lifecycle measurements."""
+
+    provider: str
+    model: str
+    output: StructuredModel
+    upload_seconds: float
+    processing_seconds: float
+    generation_seconds: float
+    total_seconds: float
+    cleanup_succeeded: bool
 
 
 class GeminiVideoReviewer:
@@ -127,6 +143,41 @@ class GeminiVideoReviewer:
         media_duration_seconds: float | None,
         config: AIReviewConfig,
     ) -> AIReviewResult:
+        structured = self.review_structured(
+            media_path,
+            config=config,
+            prompt=_smoke_prompt(config.maximum_observations),
+            response_model=AIObservationBatch,
+            validate_output=lambda batch: _validate_observation_batch(
+                batch,
+                media_duration_seconds=media_duration_seconds,
+                config=config,
+            ),
+        )
+        return AIReviewResult(
+            provider=structured.provider,
+            model=structured.model,
+            observations=structured.output.observations,
+            upload_seconds=structured.upload_seconds,
+            processing_seconds=structured.processing_seconds,
+            generation_seconds=structured.generation_seconds,
+            total_seconds=structured.total_seconds,
+            cleanup_succeeded=structured.cleanup_succeeded,
+        )
+
+    def review_structured(
+        self,
+        media_path: str | Path,
+        *,
+        config: AIReviewConfig,
+        prompt: str,
+        response_model: type[StructuredModel],
+        validate_output: Callable[[StructuredModel], StructuredModel] | None = None,
+        image_path: str | Path | None = None,
+        image_mime_type: str | None = None,
+    ) -> StructuredAIReviewResult[StructuredModel]:
+        """Run one schema-constrained task through the proven upload lifecycle."""
+
         api_key = self._environ.get("GEMINI_API_KEY", "").strip()
         if not api_key:
             raise AIReviewError(
@@ -162,15 +213,26 @@ class GeminiVideoReviewer:
 
             stage = "generation"
             generation_started = self._clock()
+            contents: list[object] = [remote_file, prompt]
+            if image_path is not None:
+                if not image_mime_type:
+                    raise AIReviewError(
+                        "ai_image_input_invalid",
+                        "Gemini image input is missing a validated media type.",
+                    )
+                types = _load_google_genai_types()
+                contents.insert(
+                    1,
+                    types.Part.from_bytes(
+                        data=Path(image_path).read_bytes(), mime_type=image_mime_type
+                    ),
+                )
             response = client.models.generate_content(
                 model=config.model,
-                contents=[
-                    remote_file,
-                    _smoke_prompt(config.maximum_observations),
-                ],
+                contents=contents,
                 config={
                     "response_mime_type": "application/json",
-                    "response_json_schema": AIObservationBatch.model_json_schema(),
+                    "response_json_schema": response_model.model_json_schema(),
                     "thinking_config": {"thinking_level": "LOW"},
                     "max_output_tokens": 2048,
                     "automatic_function_calling": {"disable": True},
@@ -180,11 +242,11 @@ class GeminiVideoReviewer:
                 },
             )
             generation_seconds = self._clock() - generation_started
-            batch = _validate_provider_output(
-                getattr(response, "text", None),
-                media_duration_seconds=media_duration_seconds,
-                config=config,
+            output = _validate_structured_output(
+                getattr(response, "text", None), response_model
             )
+            if validate_output is not None:
+                output = validate_output(output)
         except AIReviewError:
             raise
         except Exception as exc:
@@ -209,10 +271,10 @@ class GeminiVideoReviewer:
                 except Exception:
                     pass
 
-        return AIReviewResult(
+        return StructuredAIReviewResult(
             provider=config.provider,
             model=config.model,
-            observations=batch.observations,
+            output=output,
             upload_seconds=upload_seconds,
             processing_seconds=processing_seconds,
             generation_seconds=generation_seconds,
@@ -277,24 +339,29 @@ def _smoke_prompt(maximum_observations: int) -> str:
     )
 
 
-def _validate_provider_output(
-    output_text: object,
+def _validate_structured_output(
+    output_text: object, response_model: type[StructuredModel]
+) -> StructuredModel:
+    if not isinstance(output_text, str) or not output_text.strip():
+        raise AIReviewError(
+            "ai_provider_response_invalid",
+            "Gemini returned no structured review output.",
+        )
+    try:
+        return response_model.model_validate_json(output_text)
+    except ValidationError as exc:
+        raise AIReviewError(
+            "ai_provider_response_invalid",
+            "Gemini returned output that did not match the required schema.",
+        ) from exc
+
+
+def _validate_observation_batch(
+    batch: AIObservationBatch,
     *,
     media_duration_seconds: float | None,
     config: AIReviewConfig,
 ) -> AIObservationBatch:
-    if not isinstance(output_text, str) or not output_text.strip():
-        raise AIReviewError(
-            "ai_provider_response_invalid",
-            "Gemini returned no structured observations.",
-        )
-    try:
-        batch = AIObservationBatch.model_validate_json(output_text)
-    except ValidationError as exc:
-        raise AIReviewError(
-            "ai_provider_response_invalid",
-            "Gemini returned observations that did not match the required schema.",
-        ) from exc
     if len(batch.observations) > config.maximum_observations:
         raise AIReviewError(
             "ai_provider_response_invalid",
@@ -327,3 +394,9 @@ def _load_google_genai():
     from google import genai
 
     return genai
+
+
+def _load_google_genai_types():
+    from google.genai import types
+
+    return types

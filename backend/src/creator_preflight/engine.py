@@ -3,12 +3,7 @@
 from pathlib import Path
 from time import perf_counter
 
-from creator_preflight.ai_review import (
-    AIObservation,
-    AIReviewError,
-    GeminiVideoReviewer,
-    VideoReviewer,
-)
+from creator_preflight.ai_review import AIReviewError
 from creator_preflight.captions import inspect_caption_file, speech_gap_findings
 from creator_preflight.config import DetectorConfig, PreflightConfig
 from creator_preflight.detectors import (
@@ -28,7 +23,15 @@ from creator_preflight.models import (
     FindingSeverity,
     FindingStatus,
     PreflightReport,
+    PromiseCheckStatus,
+    PromiseCheckSummary,
     PublishingPackage,
+)
+from creator_preflight.promise_check import (
+    GeminiPromiseReviewer,
+    PromiseDelivery,
+    PromiseReviewer,
+    promise_findings,
 )
 from creator_preflight.rules import evaluate_package_rules
 from creator_preflight.transcription import (
@@ -36,6 +39,7 @@ from creator_preflight.transcription import (
     TranscriptionUnavailableError,
     WhisperTranscriber,
 )
+from creator_preflight.thumbnails import inspect_thumbnail
 
 
 class MediaAnomalyScanner:
@@ -121,7 +125,7 @@ class PreflightScanner:
         ffmpeg_binary: str = "ffmpeg",
         timeout_seconds: float = 60,
         transcriber: SpeechTranscriber | None = None,
-        ai_reviewer: VideoReviewer | None = None,
+        promise_reviewer: PromiseReviewer | None = None,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be greater than zero")
@@ -131,7 +135,7 @@ class PreflightScanner:
         self.ffmpeg_binary = ffmpeg_binary
         self.timeout_seconds = timeout_seconds
         self.transcriber = transcriber or WhisperTranscriber()
-        self.ai_reviewer = ai_reviewer or GeminiVideoReviewer()
+        self.promise_reviewer = promise_reviewer or GeminiPromiseReviewer()
 
     def scan(
         self, media_path: str | Path, package: PublishingPackage
@@ -191,6 +195,12 @@ class PreflightScanner:
                         finding_codes=[unavailable.code],
                     )
                 )
+        thumbnail_info = None
+        if package.thumbnail_path is not None:
+            thumbnail_info = inspect_thumbnail(
+                package.thumbnail_path,
+                maximum_bytes=self.config.ai_review.promise_check.maximum_thumbnail_file_size_bytes,
+            )
         ai_findings: list[Finding] = []
         ai_checks: list[CheckResult] = []
         ai_summary = AIReviewSummary(
@@ -199,24 +209,44 @@ class PreflightScanner:
             model=self.config.ai_review.model,
             status=AIReviewStatus.DISABLED,
         )
-        if self.config.ai_review.enabled:
+        promise_summary = PromiseCheckSummary(status=PromiseCheckStatus.DISABLED)
+        promise_enabled = (
+            self.config.ai_review.enabled
+            and self.config.ai_review.promise_check.enabled
+        )
+        if promise_enabled and not package.title.strip():
+            ai_summary = AIReviewSummary(
+                enabled=True,
+                provider=self.config.ai_review.provider,
+                model=self.config.ai_review.model,
+                status=AIReviewStatus.NOT_RUN,
+                reason_code="promise_title_missing",
+            )
+            promise_summary = PromiseCheckSummary(
+                status=PromiseCheckStatus.NOT_EVALUABLE,
+                explanation="Promise Check requires a non-empty title.",
+            )
+        elif promise_enabled:
             try:
-                ai_result = self.ai_reviewer.review(
+                ai_result = self.promise_reviewer.review(
                     media_path,
                     anomaly_result.media.duration_seconds,
-                    self.config.ai_review,
+                    title=package.title,
+                    description=package.description,
+                    thumbnail_path=package.thumbnail_path,
+                    thumbnail_info=thumbnail_info,
+                    config=self.config.ai_review,
                 )
-                ai_findings = [
-                    _ai_observation_finding(
-                        observation,
-                        provider=ai_result.provider,
-                        model=ai_result.model,
-                    )
-                    for observation in ai_result.observations
-                ]
+                ai_findings = promise_findings(
+                    ai_result.review,
+                    provider=ai_result.provider,
+                    model=ai_result.model,
+                    config=self.config.ai_review,
+                    thumbnail_supplied=package.thumbnail_path is not None,
+                )
                 ai_checks.append(
                     CheckResult(
-                        check_id="ai.review",
+                        check_id="ai.promise",
                         passed=not ai_findings,
                         finding_codes=[finding.code for finding in ai_findings],
                     )
@@ -226,9 +256,38 @@ class PreflightScanner:
                     provider=ai_result.provider,
                     model=ai_result.model,
                     status=AIReviewStatus.SUCCEEDED,
-                    observation_count=len(ai_result.observations),
+                    observation_count=len(ai_findings),
                     runtime_seconds=ai_result.total_seconds,
                     cleanup_succeeded=ai_result.cleanup_succeeded,
+                )
+                promise_status = (
+                    PromiseCheckStatus.NOT_EVALUABLE
+                    if (
+                        ai_result.review.overall_delivery
+                        is PromiseDelivery.NOT_EVALUABLE
+                        or (
+                            not ai_findings
+                            and ai_result.review.overall_delivery
+                            is not PromiseDelivery.ALIGNED
+                        )
+                    )
+                    else PromiseCheckStatus.NEEDS_REVIEW
+                    if ai_findings
+                    else PromiseCheckStatus.ALIGNED
+                )
+                promise_summary = PromiseCheckSummary(
+                    status=promise_status,
+                    inferred_promise=ai_result.review.inferred_promise,
+                    first_substantive_address_seconds=ai_result.review.first_substantive_address_seconds,
+                    first_substantive_address_evidence=ai_result.review.first_substantive_address_evidence,
+                    overall_delivery=ai_result.review.overall_delivery.value,
+                    explanation=ai_result.review.overall_delivery_explanation,
+                    confidence=ai_result.review.confidence,
+                    thumbnail_alignment=(
+                        ai_result.review.thumbnail_alignment.value
+                        if ai_result.review.thumbnail_alignment is not None
+                        else None
+                    ),
                 )
             except AIReviewError as exc:
                 unavailable = _ai_review_unavailable_finding(
@@ -239,7 +298,7 @@ class PreflightScanner:
                 ai_findings.append(unavailable)
                 ai_checks.append(
                     CheckResult(
-                        check_id="ai.review",
+                        check_id="ai.promise",
                         passed=False,
                         finding_codes=[unavailable.code],
                     )
@@ -254,6 +313,10 @@ class PreflightScanner:
                         else AIReviewStatus.FAILED
                     ),
                     reason_code=exc.code,
+                )
+                promise_summary = PromiseCheckSummary(
+                    status=PromiseCheckStatus.UNAVAILABLE,
+                    explanation=exc.message,
                 )
         findings = reconcile_findings(
             [
@@ -302,6 +365,7 @@ class PreflightScanner:
             configuration_source=self.configuration_source,
             caption_summary=caption_summary,
             ai_review=ai_summary,
+            promise_check=promise_summary,
             scan_duration_seconds=perf_counter() - started_at,
         )
 
@@ -426,30 +490,6 @@ def _transcription_unavailable_finding(
     )
 
 
-def _ai_observation_finding(
-    observation: AIObservation, *, provider: str, model: str
-) -> Finding:
-    return Finding(
-        code=f"AI_REVIEW_{observation.observation_type.value.upper()}",
-        severity=FindingSeverity.WARNING,
-        status=FindingStatus.NEEDS_REVIEW,
-        message=observation.explanation,
-        source=f"ai.{provider}",
-        timestamp_start_seconds=observation.start_seconds,
-        timestamp_end_seconds=observation.end_seconds,
-        details={
-            "category": "ai",
-            "title": observation.summary,
-            "observation_type": observation.observation_type.value,
-            "confidence": observation.confidence,
-            "evidence": observation.evidence,
-            "provider": provider,
-            "model": model,
-        },
-        suggestion=observation.suggestion,
-    )
-
-
 def _ai_review_unavailable_finding(
     exc: AIReviewError, *, provider: str, model: str
 ) -> Finding:
@@ -458,10 +498,10 @@ def _ai_review_unavailable_finding(
         severity=FindingSeverity.WARNING,
         status=FindingStatus.NEEDS_REVIEW,
         message=exc.message,
-        source=f"ai.{provider}",
+        source=f"ai.{provider}.promise",
         details={
-            "category": "ai",
-            "title": "Optional AI review unavailable",
+            "category": "editorial",
+            "title": "Promise Check unavailable",
             "reason_code": exc.code,
             "provider": provider,
             "model": model,

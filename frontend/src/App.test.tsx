@@ -39,14 +39,18 @@ describe("Creator Preflight frontend", () => {
     render(<App />);
     const videoInput = screen.getByLabelText("Select video file") as HTMLInputElement;
     const captionInput = screen.getByLabelText("Select optional captions file") as HTMLInputElement;
+    const thumbnailInput = screen.getByLabelText("Select optional thumbnail file") as HTMLInputElement;
     await user.upload(videoInput, new File(["video"], "same video.mp4", { type: "video/mp4" }));
     await user.upload(captionInput, new File(["captions"], "same captions.srt", { type: "text/plain" }));
+    await user.upload(thumbnailInput, new File(["image"], "same thumbnail.png", { type: "image/png" }));
 
+    await user.click(screen.getByRole("button", { name: "Remove thumbnail file" }));
     await user.click(screen.getByRole("button", { name: "Remove captions file" }));
     await user.click(screen.getByRole("button", { name: "Remove selected video" }));
 
     expect(videoInput.value).toBe("");
     expect(captionInput.value).toBe("");
+    expect(thumbnailInput.value).toBe("");
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:creator-preflight-local-preview");
     expect(screen.getByRole("button", { name: /run preflight/i })).toBeDisabled();
   });
@@ -170,6 +174,62 @@ describe("Creator Preflight frontend", () => {
     expect(screen.getByRole("button", { name: "AI 1" })).toBeInTheDocument();
     expect(screen.getByText("Background changes")).toBeInTheDocument();
     expect(screen.getByText("The background changes from blue to green.")).toBeInTheDocument();
+  });
+
+  it("renders aligned Promise Check evidence without inventing a finding", () => {
+    const report: PreflightReport = {
+      ...readyReport,
+      promise_check: {
+        status: "aligned",
+        inferred_promise: "Explain why blue light can disrupt sleep.",
+        first_substantive_address_seconds: 8,
+        first_substantive_address_evidence: "The explanation begins.",
+        overall_delivery: "aligned",
+        explanation: "The video delivers the title.",
+        confidence: 0.95,
+        thumbnail_alignment: "aligned",
+      },
+    };
+    render(<ResultsView report={report} />);
+    expect(screen.getByRole("heading", { name: "Promise Check" })).toBeInTheDocument();
+    expect(screen.getByText("Explain why blue light can disrupt sleep.")).toBeInTheDocument();
+    expect(screen.getByText("00:08.00")).toBeInTheDocument();
+    expect(screen.getByText("Aligned", { selector: ".promise-summary strong" })).toBeInTheDocument();
+  });
+
+  it("renders a warning Promise finding and keeps it seekable", async () => {
+    const user = userEvent.setup();
+    const finding = {
+      code: "AI_TITLE_CONTENT_MISMATCH",
+      severity: "warning" as const,
+      status: "NEEDS_REVIEW" as const,
+      message: "Substantive delivery begins after the configured window.",
+      source: "ai.gemini.promise",
+      timestamp_start_seconds: 12,
+      timestamp_end_seconds: 24,
+      details: { category: "editorial", title: "Title and video may not align", confidence: 0.94 },
+      suggestion: "Review whether the opening should reach the subject sooner.",
+    };
+    const report: PreflightReport = {
+      ...needsReviewReport,
+      findings: [finding],
+      warning_count: 1,
+      promise_check: {
+        status: "needs_review",
+        inferred_promise: "Explain the promised subject.",
+        first_substantive_address_seconds: 24,
+        first_substantive_address_evidence: "The explanation begins.",
+        overall_delivery: "aligned",
+        explanation: "The promise is ultimately delivered.",
+        confidence: 0.94,
+        thumbnail_alignment: null,
+      },
+    };
+    render(<ResultsView report={report} previewUrl="blob:promise-preview" />);
+    const video = screen.getByTestId("preview-video") as HTMLVideoElement;
+    expect(screen.getByRole("button", { name: "Editorial 1" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "00:12.00–00:24.00" }));
+    expect(video.currentTime).toBe(12);
   });
 
   it.each([

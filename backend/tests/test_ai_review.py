@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from creator_preflight import ai_review as ai_module
 from creator_preflight.ai_review import (
     AIObservation,
+    AIObservationBatch,
     AIObservationType,
     AIReviewError,
     AIReviewResult,
@@ -20,6 +21,11 @@ from creator_preflight.config import AIReviewConfig, PreflightConfig
 from creator_preflight.engine import PreflightScanner
 from creator_preflight.models import FindingStatus, PublishingPackage
 from creator_preflight.media import MediaInspector
+from creator_preflight.promise_check import (
+    PromiseDelivery,
+    PromiseProviderResult,
+    PromiseReviewResult,
+)
 
 
 def _observation_payload(**changes):
@@ -47,9 +53,11 @@ class FakeFiles:
         )
         self.cleanup_error = cleanup_error
         self.deleted = False
+        self.upload_count = 0
 
     def upload(self, *, file):
         assert file
+        self.upload_count += 1
         return self.remote
 
     def get(self, *, name):
@@ -170,6 +178,36 @@ def test_successful_typed_provider_response_and_native_schema(tmp_path: Path) ->
     assert request["contents"][0] is client.files.remote
 
 
+def test_structured_task_includes_thumbnail_in_same_single_upload(
+    tmp_path: Path, monkeypatch
+) -> None:
+    client = FakeClient({"observations": []})
+    thumbnail = tmp_path / "thumbnail.png"
+    thumbnail.write_bytes(b"image bytes")
+    inline_part = object()
+    fake_types = SimpleNamespace(
+        Part=SimpleNamespace(from_bytes=lambda **kwargs: inline_part)
+    )
+    monkeypatch.setattr(ai_module, "_load_google_genai_types", lambda: fake_types)
+
+    result = _reviewer(client).review_structured(
+        tmp_path / "video.mp4",
+        config=AIReviewConfig(enabled=True),
+        prompt="Task prompt",
+        response_model=AIObservationBatch,
+        image_path=thumbnail,
+        image_mime_type="image/png",
+    )
+
+    assert result.output.observations == []
+    assert client.files.upload_count == 1
+    assert client.models.kwargs["contents"] == [
+        client.files.remote,
+        inline_part,
+        "Task prompt",
+    ]
+
+
 @pytest.mark.parametrize(
     "payload, expected_code",
     [
@@ -250,19 +288,23 @@ def test_cleanup_failure_does_not_replace_success(tmp_path: Path) -> None:
 
 
 class ExplodingReviewer:
-    def review(self, media_path, media_duration_seconds, config):
+    def review(self, media_path, media_duration_seconds, **kwargs):
         raise AssertionError("disabled AI must not invoke the provider")
 
 
 class ResultReviewer:
-    def __init__(self, observations: list[AIObservation]):
-        self.observations = observations
-
-    def review(self, media_path, media_duration_seconds, config):
-        return AIReviewResult(
+    def review(self, media_path, media_duration_seconds, **kwargs):
+        return PromiseProviderResult(
             provider="gemini",
-            model=config.model,
-            observations=self.observations,
+            model=kwargs["config"].model,
+            review=PromiseReviewResult(
+                inferred_promise="Explain the subject.",
+                first_substantive_address_seconds=0.1,
+                first_substantive_address_evidence="The explanation begins.",
+                overall_delivery=PromiseDelivery.ALIGNED,
+                overall_delivery_explanation="The video delivers the title.",
+                confidence=0.95,
+            ),
             upload_seconds=0.1,
             processing_seconds=0.2,
             generation_seconds=0.3,
@@ -272,7 +314,7 @@ class ResultReviewer:
 
 
 class UnavailableReviewer:
-    def review(self, media_path, media_duration_seconds, config):
+    def review(self, media_path, media_duration_seconds, **kwargs):
         raise AIReviewError(
             "ai_provider_unavailable", "Gemini is temporarily unavailable."
         )
@@ -280,7 +322,7 @@ class UnavailableReviewer:
 
 def test_ai_disabled_never_invokes_provider(video_with_audio: Path) -> None:
     report = PreflightScanner(
-        config=_test_config(), ai_reviewer=ExplodingReviewer()
+        config=_test_config(), promise_reviewer=ExplodingReviewer()
     ).scan(video_with_audio, _package())
 
     assert report.verdict is FindingStatus.READY
@@ -288,37 +330,22 @@ def test_ai_disabled_never_invokes_provider(video_with_audio: Path) -> None:
     assert "ai.review" not in [check.check_id for check in report.checks]
 
 
-def test_ai_observation_is_review_only_and_stably_sorted(
+def test_successful_ai_promise_review_is_recorded_without_fabricated_finding(
     video_with_audio: Path,
 ) -> None:
     config = _test_config()
     config.ai_review.enabled = True
-    observations = [
-        AIObservation.model_validate(_observation_payload(start_seconds=0.8, end_seconds=0.9)),
-        AIObservation.model_validate(
-            _observation_payload(
-                observation_type="visible_text",
-                summary="Text visible",
-                explanation="Text appears on screen.",
-                start_seconds=0.1,
-                end_seconds=0.2,
-            )
-        ),
-    ]
     report = PreflightScanner(
-        config=config, ai_reviewer=ResultReviewer(observations)
+        config=config, promise_reviewer=ResultReviewer()
     ).scan(video_with_audio, _package())
 
-    assert report.verdict is FindingStatus.NEEDS_REVIEW
+    assert report.verdict is FindingStatus.READY
     assert report.critical_count == 0
-    assert report.warning_count == 2
+    assert report.warning_count == 0
     assert report.ai_review.status.value == "succeeded"
-    assert report.ai_review.observation_count == 2
-    assert [finding.code for finding in report.findings] == [
-        "AI_REVIEW_VISIBLE_TEXT",
-        "AI_REVIEW_VISUAL_CHANGE",
-    ]
-    assert all(finding.source == "ai.gemini" for finding in report.findings)
+    assert report.ai_review.observation_count == 0
+    assert report.promise_check.status.value == "aligned"
+    assert report.findings == []
 
 
 def test_ai_failure_preserves_deterministic_findings_and_never_blocks(
@@ -328,7 +355,7 @@ def test_ai_failure_preserves_deterministic_findings_and_never_blocks(
     config.ai_review.enabled = True
     config.rules.title.maximum_recommended_length = 5
     report = PreflightScanner(
-        config=config, ai_reviewer=UnavailableReviewer()
+        config=config, promise_reviewer=UnavailableReviewer()
     ).scan(
         video_with_audio,
         PublishingPackage(title="Long valid title", description="Valid description"),
@@ -341,6 +368,7 @@ def test_ai_failure_preserves_deterministic_findings_and_never_blocks(
         "TITLE_LENGTH_RECOMMENDATION",
     ]
     assert report.ai_review.status.value == "failed"
+    assert report.promise_check.status.value == "unavailable"
 
 
 def test_cli_json_remains_valid_when_ai_is_unavailable(

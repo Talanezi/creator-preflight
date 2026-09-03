@@ -90,7 +90,7 @@ def test_reconciliation_ordering_and_json_serialization(anomaly_video: Path) -> 
     ]
     payload = json.loads(report.model_dump_json())
     assert payload["verdict"] == "NEEDS_REVIEW"
-    assert payload["schema_version"] == "1.1"
+    assert payload["schema_version"] == "1.2"
     assert payload["ai_review"]["status"] == "disabled"
 
     repeated = PreflightScanner(config=config).scan(anomaly_video, _valid_package())

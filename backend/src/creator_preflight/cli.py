@@ -13,6 +13,7 @@ from creator_preflight.detectors import DetectorExecutionError
 from creator_preflight.engine import PreflightScanner
 from creator_preflight.media import MediaInspectionError
 from creator_preflight.models import FindingStatus, PreflightReport, PublishingPackage
+from creator_preflight.thumbnails import ThumbnailValidationError
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,6 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     description_group.add_argument("--description", default=None)
     description_group.add_argument("--description-file", type=Path)
     scan_parser.add_argument("--captions", type=Path)
+    scan_parser.add_argument("--thumbnail", type=Path)
     scan_parser.add_argument("--config", type=Path)
     scan_parser.add_argument("--json", action="store_true", dest="json_output")
     return parser
@@ -40,6 +42,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         description = _load_description(args.description, args.description_file)
         if args.captions is not None and not args.captions.is_file():
             raise CliInputError(f"Captions path is not a file: {args.captions}")
+        if args.thumbnail is not None and not args.thumbnail.is_file():
+            raise CliInputError(f"Thumbnail path is not a file: {args.thumbnail}")
         config = load_config(args.config) if args.config else PreflightConfig()
         report = PreflightScanner(
             config=config,
@@ -50,6 +54,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 title=args.title,
                 description=description,
                 captions_path=args.captions,
+                thumbnail_path=args.thumbnail,
             ),
         )
     except (
@@ -57,6 +62,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         ConfigurationError,
         DetectorExecutionError,
         MediaInspectionError,
+        ThumbnailValidationError,
         OSError,
     ) as exc:
         message = getattr(exc, "message", str(exc))

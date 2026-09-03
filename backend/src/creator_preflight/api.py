@@ -1,12 +1,13 @@
 """Thin FastAPI adapters for inspection and unified preflight scanning."""
 
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 
-from creator_preflight.config import ConfigurationError, PreflightConfig
+from creator_preflight.config import ConfigurationError, PreflightConfig, load_config
 from creator_preflight.detectors import DetectorExecutionError
 from creator_preflight.engine import PreflightScanner
 from creator_preflight.media import MediaInspectionError, MediaInspector
@@ -16,6 +17,7 @@ from creator_preflight.models import (
     PreflightReport,
     PublishingPackage,
 )
+from creator_preflight.thumbnails import ThumbnailValidationError, inspect_thumbnail
 
 app = FastAPI(title="Creator Preflight", version="0.1.0")
 
@@ -67,6 +69,15 @@ async def configuration_error_handler(
     return JSONResponse(status_code=500, content=body.model_dump(mode="json"))
 
 
+@app.exception_handler(ThumbnailValidationError)
+async def thumbnail_validation_error_handler(
+    request: Request, exc: ThumbnailValidationError
+) -> JSONResponse:
+    del request
+    body = ErrorResponse(error={"code": exc.code, "message": exc.message})
+    return JSONResponse(status_code=400, content=body.model_dump(mode="json"))
+
+
 @app.post(
     "/api/v1/media/inspect",
     response_model=MediaInspection,
@@ -104,12 +115,13 @@ async def scan_uploaded_package(
     title: str = Form(default=""),
     description: str = Form(default=""),
     captions: UploadFile | None = File(default=None),
+    thumbnail: UploadFile | None = File(default=None),
 ) -> PreflightReport:
     """Temporarily store an upload and run the shared unified scanner."""
 
     try:
         with TemporaryDirectory(prefix="creator-preflight-") as temporary_directory:
-            config = PreflightConfig()
+            config, configuration_source = _api_config()
             temporary_path = Path(temporary_directory) / "upload.media"
             with temporary_path.open("wb") as destination:
                 while chunk := await file.read(1024 * 1024):
@@ -128,15 +140,47 @@ async def scan_uploaded_package(
                         written += min(len(chunk), remaining)
                         if written >= copy_limit:
                             break
+            thumbnail_path = None
+            if thumbnail is not None:
+                thumbnail_path = Path(temporary_directory) / "thumbnail.upload"
+                written = 0
+                copy_limit = (
+                    config.ai_review.promise_check.maximum_thumbnail_file_size_bytes + 1
+                )
+                with thumbnail_path.open("wb") as destination:
+                    while chunk := await thumbnail.read(64 * 1024):
+                        remaining = copy_limit - written
+                        if remaining <= 0:
+                            break
+                        destination.write(chunk[:remaining])
+                        written += min(len(chunk), remaining)
+                        if written >= copy_limit:
+                            break
+                inspect_thumbnail(
+                    thumbnail_path,
+                    maximum_bytes=config.ai_review.promise_check.maximum_thumbnail_file_size_bytes,
+                )
             package = PublishingPackage(
                 title=title,
                 description=description,
                 captions_path=caption_path,
+                thumbnail_path=thumbnail_path,
             )
             return PreflightScanner(
-                config=config, configuration_source="typed defaults"
+                config=config, configuration_source=configuration_source
             ).scan(temporary_path, package)
     finally:
         await file.close()
         if captions is not None:
             await captions.close()
+        if thumbnail is not None:
+            await thumbnail.close()
+
+
+def _api_config() -> tuple[PreflightConfig, str]:
+    config_path = os.environ.get("CREATOR_PREFLIGHT_CONFIG", "").strip()
+    return (
+        (load_config(config_path), config_path)
+        if config_path
+        else (PreflightConfig(), "typed defaults")
+    )

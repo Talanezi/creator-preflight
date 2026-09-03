@@ -1,7 +1,7 @@
 """Shared typed contracts for media inspection and future findings."""
 
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pathlib import Path
 
@@ -95,6 +95,7 @@ class PublishingPackage(BaseModel):
     title: str = ""
     description: str = ""
     captions_path: Path | None = None
+    thumbnail_path: Path | None = None
     profile_id: str | None = Field(default=None, min_length=1)
 
 
@@ -123,6 +124,7 @@ class CaptionSummary(BaseModel):
 
 class AIReviewStatus(str, Enum):
     DISABLED = "disabled"
+    NOT_RUN = "not_run"
     SUCCEEDED = "succeeded"
     UNAVAILABLE = "unavailable"
     FAILED = "failed"
@@ -143,12 +145,39 @@ class AIReviewSummary(BaseModel):
     reason_code: str | None = Field(default=None, min_length=1, max_length=100)
 
 
+class PromiseCheckStatus(str, Enum):
+    DISABLED = "disabled"
+    ALIGNED = "aligned"
+    NEEDS_REVIEW = "needs_review"
+    NOT_EVALUABLE = "not_evaluable"
+    UNAVAILABLE = "unavailable"
+
+
+class PromiseCheckSummary(BaseModel):
+    """Compact validated editorial result for title/thumbnail/video alignment."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: PromiseCheckStatus
+    inferred_promise: str | None = Field(default=None, max_length=500)
+    first_substantive_address_seconds: float | None = Field(
+        default=None, ge=0, allow_inf_nan=False
+    )
+    first_substantive_address_evidence: str | None = Field(
+        default=None, max_length=1000
+    )
+    overall_delivery: Literal["aligned", "partial", "mismatched", "not_evaluable"] | None = None
+    explanation: str | None = Field(default=None, max_length=1500)
+    confidence: float | None = Field(default=None, ge=0, le=1, allow_inf_nan=False)
+    thumbnail_alignment: Literal["aligned", "mismatched", "not_evaluable"] | None = None
+
+
 class PreflightReport(BaseModel):
     """Unified, explainable Creator Preflight scan report."""
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "1.1"
+    schema_version: str = "1.2"
     verdict: FindingStatus
     media: MediaInspection
     findings: list[Finding]
@@ -161,6 +190,7 @@ class PreflightReport(BaseModel):
     configuration_source: str | None = None
     caption_summary: CaptionSummary | None = None
     ai_review: AIReviewSummary
+    promise_check: PromiseCheckSummary
     scan_duration_seconds: float = Field(ge=0)
 
 

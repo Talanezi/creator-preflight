@@ -180,6 +180,20 @@ class AIReviewConfig(BaseModel):
     timeout_seconds: float = Field(default=180.0, gt=0, le=900)
     maximum_observations: int = Field(default=5, ge=1, le=10)
     timestamp_tolerance_seconds: float = Field(default=1.0, ge=0, le=10)
+    promise_check: "PromiseCheckConfig" = Field(default_factory=lambda: PromiseCheckConfig())
+
+
+class PromiseCheckConfig(BaseModel):
+    """Conservative application policy applied to validated Promise output."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    delay_warning_seconds: float = Field(default=20.0, gt=0, le=600)
+    minimum_issue_confidence: float = Field(default=0.70, ge=0, le=1)
+    maximum_thumbnail_file_size_bytes: int = Field(
+        default=5_000_000, gt=0, le=20_000_000
+    )
 
 
 class CreatorRuleConfig(BaseModel):

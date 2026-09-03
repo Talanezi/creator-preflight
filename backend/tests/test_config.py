@@ -30,6 +30,8 @@ def test_default_detector_configuration_loads() -> None:
     assert config.ai_review.enabled is False
     assert config.ai_review.provider == "gemini"
     assert config.ai_review.model == "gemini-3.7-flash"
+    assert config.ai_review.promise_check.delay_warning_seconds == 20.0
+    assert config.ai_review.promise_check.minimum_issue_confidence == 0.70
     assert config.rules.video.minimum_width == 1280
     assert config.rules.title.maximum_recommended_length == 100
     assert config.rules.description.validate_urls is True

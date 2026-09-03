@@ -55,7 +55,7 @@ export interface CaptionSummary {
   timeline_coverage_percent: number | null;
 }
 
-export type AIReviewStatus = "disabled" | "succeeded" | "unavailable" | "failed";
+export type AIReviewStatus = "disabled" | "not_run" | "succeeded" | "unavailable" | "failed";
 
 export interface AIReviewSummary {
   enabled: boolean;
@@ -66,6 +66,19 @@ export interface AIReviewSummary {
   runtime_seconds: number | null;
   cleanup_succeeded: boolean | null;
   reason_code: string | null;
+}
+
+export type PromiseCheckStatus = "disabled" | "aligned" | "needs_review" | "not_evaluable" | "unavailable";
+
+export interface PromiseCheckSummary {
+  status: PromiseCheckStatus;
+  inferred_promise: string | null;
+  first_substantive_address_seconds: number | null;
+  first_substantive_address_evidence: string | null;
+  overall_delivery: "aligned" | "partial" | "mismatched" | "not_evaluable" | null;
+  explanation: string | null;
+  confidence: number | null;
+  thumbnail_alignment: "aligned" | "mismatched" | "not_evaluable" | null;
 }
 
 export interface PreflightReport {
@@ -82,5 +95,6 @@ export interface PreflightReport {
   configuration_source: string | null;
   caption_summary: CaptionSummary | null;
   ai_review: AIReviewSummary;
+  promise_check: PromiseCheckSummary;
   scan_duration_seconds: number;
 }

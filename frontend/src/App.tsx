@@ -14,6 +14,7 @@ const emptyInputs: ScanInputs = {
   title: "",
   description: "",
   captions: null,
+  thumbnail: null,
 };
 
 export function App() {
@@ -75,6 +76,7 @@ export function App() {
           title: inputs.title,
           description: inputs.description,
           captions: inputs.captions,
+          thumbnail: inputs.thumbnail,
         },
         { signal: controller.signal },
       );

@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { Captions, FileVideo2, Play, RefreshCw, Upload, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Captions, FileImage, FileVideo2, Play, RefreshCw, Upload, X } from "lucide-react";
 import { formatBytes } from "../utils/format";
 
 export interface ScanInputs {
@@ -7,6 +7,7 @@ export interface ScanInputs {
   title: string;
   description: string;
   captions: File | null;
+  thumbnail: File | null;
 }
 
 interface ScanFormProps {
@@ -20,7 +21,19 @@ const TITLE_GUIDANCE = 100;
 export function ScanForm({ inputs, onChange, onRun }: ScanFormProps) {
   const videoInput = useRef<HTMLInputElement>(null);
   const captionInput = useRef<HTMLInputElement>(null);
+  const thumbnailInput = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
+  const [thumbnailPreview, setThumbnailPreview] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!inputs.thumbnail || typeof URL.createObjectURL !== "function") {
+      setThumbnailPreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(inputs.thumbnail);
+    setThumbnailPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [inputs.thumbnail]);
 
   const selectVideo = (file?: File) => {
     if (file) onChange({ ...inputs, video: file });
@@ -172,6 +185,48 @@ export function ScanForm({ inputs, onChange, onRun }: ScanFormProps) {
                 onClick={() => captionInput.current?.click()}
               >
                 Add captions
+              </button>
+            )}
+          </div>
+
+          <div className="field-group captions-field">
+            <div>
+              <span className="field-label"><FileImage aria-hidden="true" /> Thumbnail <em>Optional</em></span>
+              <p>Add a PNG or JPEG for Promise Check alignment review when AI is enabled.</p>
+            </div>
+            <input
+              ref={thumbnailInput}
+              className="visually-hidden"
+              type="file"
+              accept="image/png,image/jpeg,.png,.jpg,.jpeg"
+              aria-label="Select optional thumbnail file"
+              onChange={(event) =>
+                onChange({ ...inputs, thumbnail: event.target.files?.[0] ?? null })
+              }
+            />
+            {inputs.thumbnail ? (
+              <div className="caption-selection thumbnail-selection">
+                {thumbnailPreview && <img src={thumbnailPreview} alt="Selected thumbnail preview" />}
+                <span title={inputs.thumbnail.name}>{inputs.thumbnail.name}</span>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label="Remove thumbnail file"
+                  onClick={() => {
+                    if (thumbnailInput.current) thumbnailInput.current.value = "";
+                    onChange({ ...inputs, thumbnail: null });
+                  }}
+                >
+                  <X aria-hidden="true" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="secondary-button compact"
+                onClick={() => thumbnailInput.current?.click()}
+              >
+                Add thumbnail
               </button>
             )}
           </div>
