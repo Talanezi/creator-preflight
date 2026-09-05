@@ -4,6 +4,8 @@
 
 Creator Preflight reviews a real finished creator video together with its title, description, captions, and optional thumbnail. It returns an explainable `READY`, `NEEDS_REVIEW`, or `BLOCKED` report, puts evidence at the original video timestamp, and lets the creator click a finding to seek directly to the moment that needs attention.
 
+For supported findings, **Repair Mode** turns that evidence into a backend-owned edit proposal. Creators can compare the original moment with a short repaired preview, explicitly approve one or more compatible removals, and render a new downloadable MP4 without overwriting the source. Repairs are never applied silently, and findings that require editorial judgment remain human-only.
+
 It combines four review layers:
 
 - **Technical integrity** — deterministic FFmpeg/FFprobe checks for media structure, black sections, silence, frozen frames, suspicious near-full-scale audio density, and missing streams.
@@ -109,5 +111,7 @@ CLI ───────────┘                    ├─ FFmpeg + pack
 The API and CLI share the same scanner and validated YAML configuration. Provider-specific lifecycle and grounding code stays behind task-specific Pydantic trust boundaries. Reports separate the creator-content verdict (`READY`, `NEEDS_REVIEW`, or `BLOCKED`) from scan completeness (`COMPLETE`, `PARTIAL`, or `FAILED`), so a provider outage does not become a content warning or fabricate an AI pass.
 
 The local API streams uploads to temporary storage with a 2 GiB default limit, runs synchronous media/provider work outside the async event loop, admits at most two scans by default, and accepts expensive browser requests only from configured local origins. These limits are configurable in `config/preflight.default.yml`.
+
+Repair preview and apply requests use the same upload, origin, concurrency, and temporary-file safeguards. M17 supports only allowlisted `REMOVE_RANGE` operations: the backend validates original-timeline ranges again, cuts video and audio together, and normalizes repaired exports to MP4/H.264/AAC. A repaired export is not automatically re-scanned or certified.
 
 See [`docs/SPEC.md`](docs/SPEC.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and [`docs/STATUS.md`](docs/STATUS.md) for the exact contract, implementation boundaries, and verified release status.

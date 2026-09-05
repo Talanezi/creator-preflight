@@ -76,10 +76,11 @@ describe("Creator Preflight frontend", () => {
 
   it("renders the report verdict, counts, and typed findings", () => {
     render(<ResultsView report={needsReviewReport} />);
+    const findings = within(screen.getByRole("region", { name: "Findings" }));
 
     expect(screen.getByRole("heading", { name: "Needs review" })).toBeInTheDocument();
-    expect(screen.getByText("Sustained near-black section")).toBeInTheDocument();
-    expect(screen.getByText("Long silent section")).toBeInTheDocument();
+    expect(findings.getByText("Sustained near-black section")).toBeInTheDocument();
+    expect(findings.getByText("Long silent section")).toBeInTheDocument();
     expect(screen.getByLabelText("Scan counts")).toHaveTextContent("9 passed·5 warnings·0 critical");
   });
 
@@ -117,16 +118,17 @@ describe("Creator Preflight frontend", () => {
     render(<ResultsView report={needsReviewReport} />);
 
     await user.click(screen.getByRole("button", { name: "Audio 2" }));
+    const findings = within(screen.getByRole("region", { name: "Findings" }));
 
-    expect(screen.getByText("Long silent section")).toBeInTheDocument();
-    expect(screen.getByText("Audio peak near full scale")).toBeInTheDocument();
-    expect(screen.queryByText("Sustained near-black section")).not.toBeInTheDocument();
-    expect(screen.queryByText("Title exceeds recommended length")).not.toBeInTheDocument();
+    expect(findings.getByText("Long silent section")).toBeInTheDocument();
+    expect(findings.getByText("Audio peak near full scale")).toBeInTheDocument();
+    expect(findings.queryByText("Sustained near-black section")).not.toBeInTheDocument();
+    expect(findings.queryByText("Title exceeds recommended length")).not.toBeInTheDocument();
   });
 
   it("renders global findings without inventing a timestamp", () => {
     render(<ResultsView report={needsReviewReport} />);
-    const title = screen.getByText("Title exceeds recommended length");
+    const title = within(screen.getByRole("region", { name: "Findings" })).getByText("Title exceeds recommended length");
     const item = title.closest("article");
 
     expect(item).not.toBeNull();
@@ -146,7 +148,7 @@ describe("Creator Preflight frontend", () => {
     fireEvent.loadedMetadata(video);
     video.currentTime = 0;
 
-    await user.click(screen.getByRole("button", { name: "00:02.00–00:05.00" }));
+    await user.click(within(screen.getByRole("region", { name: "Findings" })).getByRole("button", { name: "00:02.00–00:05.00" }));
 
     expect(video.currentTime).toBe(2);
   });
@@ -172,7 +174,7 @@ describe("Creator Preflight frontend", () => {
 
     expect(screen.getByRole("button", { name: "Captions 2" })).toBeInTheDocument();
     expect(screen.getByText("Possible caption gap")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "00:07.00–00:10.00" }));
+    await user.click(within(screen.getByRole("region", { name: "Findings" })).getByRole("button", { name: "00:07.00–00:10.00" }));
     expect(video.currentTime).toBe(7);
   });
 
@@ -333,6 +335,85 @@ describe("Creator Preflight frontend", () => {
     expect(video.currentTime).toBe(4);
   });
 
+  it("renders backend-owned repair classes, previews, approvals, multiple apply, and download", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve(repairVideoResponse())));
+    const user = userEvent.setup();
+    const report = repairWorkflowReport();
+    const source = new File(["original-video"], "original cut.mp4", { type: "video/mp4" });
+    render(<ResultsView report={report} previewUrl="blob:original" sourceFile={source} />);
+
+    expect(screen.getByText("1 safe repair · 1 to preview · 1 need your judgment")).toBeInTheDocument();
+    expect(screen.getByText("Safe repair")).toBeInTheDocument();
+    expect(screen.getByText("Preview required")).toBeInTheDocument();
+    expect(screen.getByText("Your judgment")).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("button", { name: "Preview repair" })[0]);
+    expect(await screen.findByTestId("repair-preview-video")).toBeInTheDocument();
+    expect(screen.getByText("Original context")).toBeInTheDocument();
+    expect(screen.getByText("Proposed repair")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Approve repair" }));
+    expect(screen.getByRole("button", { name: /Apply 1 approved repair/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Remove approval" }));
+    expect(screen.queryByRole("button", { name: /Apply approved/ })).not.toBeInTheDocument();
+    await user.click(screen.getAllByRole("button", { name: "Preview repair" })[0]);
+    await screen.findByTestId("repair-preview-video");
+    await user.click(screen.getByRole("button", { name: "Approve repair" }));
+    await user.click(screen.getByRole("button", { name: "Preview repair" }));
+    await screen.findByTestId("repair-preview-video");
+    await user.click(screen.getByRole("button", { name: "Approve repair" }));
+
+    await user.click(screen.getByRole("button", { name: /Apply 2 approved repairs/ }));
+    expect(await screen.findByRole("heading", { name: "Repaired video" })).toBeInTheDocument();
+    expect(screen.getByTestId("repaired-video")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Download repaired video" })).toHaveAttribute(
+      "download", "original cut.repaired.mp4",
+    );
+  });
+
+  it("keeps the original report usable when repair preview rendering fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({
+      error: { code: "repair_render_failed", message: "FFmpeg could not render the proposed repair.", details: null },
+    }, 400)));
+    const user = userEvent.setup();
+    render(<ResultsView
+      report={needsReviewReport}
+      previewUrl="blob:original"
+      sourceFile={new File(["video"], "source.mp4", { type: "video/mp4" })}
+    />);
+
+    await user.click(screen.getByRole("button", { name: "Preview repair" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("FFmpeg could not render the proposed repair.");
+    expect(screen.getByRole("heading", { name: "Needs review" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Findings" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve repair" })).toBeDisabled();
+  });
+
+  it("New scan clears approvals, repaired media, and repair object URLs", async () => {
+    const fetchMock = vi.fn((url: RequestInfo | URL) => {
+      const path = String(url);
+      if (path.endsWith("/capabilities")) return Promise.resolve(jsonResponse(capabilitiesFixture()));
+      if (path.endsWith("/preflight/scan")) return Promise.resolve(jsonResponse(needsReviewReport));
+      return Promise.resolve(repairVideoResponse());
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+    await selectVideoAndRun(user, "repair-source.mp4");
+
+    await user.click(await screen.findByRole("button", { name: "Preview repair" }));
+    await screen.findByTestId("repair-preview-video");
+    await user.click(screen.getByRole("button", { name: "Approve repair" }));
+    await user.click(screen.getByRole("button", { name: /Apply 1 approved repair/ }));
+    expect(await screen.findByRole("heading", { name: "Repaired video" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "New scan" }));
+    expect(screen.getByTestId("input-state")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Repair queue" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Repaired video" })).not.toBeInTheDocument();
+    expect(revokeObjectURL).toHaveBeenCalled();
+  });
+
   it("renders grounded Claim Review sources and seeks the claim timestamp", async () => {
     const user = userEvent.setup();
     const report: PreflightReport = {
@@ -458,7 +539,7 @@ describe("Creator Preflight frontend", () => {
     expect(await screen.findByRole("heading", { name: "Blocked" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "video-b.mp4" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "video-a.mp4" })).not.toBeInTheDocument();
-    expect(screen.getByText("Video height below minimum")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Findings" })).getByText("Video height below minimum")).toBeInTheDocument();
   });
 
   it("keeps a pending real request in an honest indeterminate state", async () => {
@@ -599,4 +680,94 @@ function captionFindingReport(): PreflightReport {
     },
     warning_count: 2,
   };
+}
+
+function repairWorkflowReport(): PreflightReport {
+  const duplicate = {
+    code: "AI_ACCIDENTAL_REPETITION",
+    severity: "warning" as const,
+    status: "NEEDS_REVIEW" as const,
+    message: "A substantial sequence appears twice.",
+    source: "ai.gemini.viewer",
+    timestamp_start_seconds: 7,
+    timestamp_end_seconds: 10,
+    details: {
+      category: "editorial",
+      title: "Possible duplicated segment",
+      original_start_seconds: 4,
+      original_end_seconds: 7,
+    },
+    suggestion: "Review whether the repetition is intentional.",
+  };
+  const human = needsReviewReport.findings.find((finding) => finding.code === "AUDIO_LONG_SILENCE")!;
+  const black = needsReviewReport.findings.find((finding) => finding.code === "VIDEO_BLACK_SEGMENT")!;
+  return {
+    ...needsReviewReport,
+    findings: [black, duplicate, human],
+    warning_count: 3,
+    repair_plan: {
+      proposals: [
+        {
+          proposal_id: "duplicate-repair",
+          finding_code: duplicate.code,
+          finding_title: "Possible duplicated segment",
+          explanation: "Remove the repeated occurrence while retaining the original reference interval.",
+          source: duplicate.source,
+          repairability: "SAFE",
+          operation: { operation_type: "REMOVE_RANGE", start_seconds: 7, end_seconds: 10 },
+          start_seconds: 7,
+          end_seconds: 10,
+          expected_duration_change_seconds: -3,
+          original_start_seconds: 4,
+          original_end_seconds: 7,
+          evidence: duplicate.details,
+        },
+        {
+          proposal_id: "black-repair",
+          finding_code: black.code,
+          finding_title: "Sustained near-black section",
+          explanation: "Remove the black interval and ripple the remaining video and audio together.",
+          source: black.source,
+          repairability: "PREVIEW_REQUIRED",
+          operation: { operation_type: "REMOVE_RANGE", start_seconds: 2, end_seconds: 5 },
+          start_seconds: 2,
+          end_seconds: 5,
+          expected_duration_change_seconds: -3,
+          original_start_seconds: null,
+          original_end_seconds: null,
+          evidence: black.details,
+        },
+        {
+          proposal_id: "human-review",
+          finding_code: human.code,
+          finding_title: "Long silent section",
+          explanation: "Creator Preflight cannot make this edit without your judgment.",
+          source: human.source,
+          repairability: "HUMAN_ONLY",
+          operation: null,
+          start_seconds: human.timestamp_start_seconds,
+          end_seconds: human.timestamp_end_seconds,
+          expected_duration_change_seconds: null,
+          original_start_seconds: null,
+          original_end_seconds: null,
+          evidence: human.details,
+        },
+      ],
+      safe_count: 1,
+      preview_required_count: 1,
+      human_only_count: 1,
+    },
+  };
+}
+
+function repairVideoResponse(): Response {
+  return new Response(new Blob(["repaired-video"], { type: "video/mp4" }), {
+    status: 200,
+    headers: {
+      "Content-Type": "video/mp4",
+      "X-Repair-Original-Duration": "12",
+      "X-Repair-Output-Duration": "6",
+      "X-Repair-Removed-Duration": "3",
+    },
+  });
 }

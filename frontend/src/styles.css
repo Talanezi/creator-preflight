@@ -309,6 +309,67 @@ svg { flex: 0 0 auto; }
 .scan-incomplete p, .scan-incomplete ul { margin: 5px 0 0; color: var(--text); font-size: 13px; line-height: 1.5; }
 .scan-incomplete ul { padding-left: 18px; }
 
+.repair-panel {
+  margin-top: 24px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+.repair-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--line);
+}
+.repair-header h2, .repair-preview h3, .repaired-output h3 { margin: 0; font-size: 18px; letter-spacing: -0.02em; }
+.repair-header p, .repair-preview header p, .repaired-output p { margin: 5px 0 0; color: var(--muted); font-size: 13px; }
+.repair-list { display: grid; }
+.repair-item {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 116px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 18px;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--line);
+}
+.repair-item:last-child { border-bottom: 0; }
+.repair-class { padding-top: 2px; color: var(--quiet); font-size: 11px; font-weight: 650; }
+.repair-safe { color: var(--pass); }
+.repair-preview_required { color: var(--warning); }
+.repair-copy { min-width: 0; }
+.repair-copy h3 { display: inline; margin: 0; font-size: 14px; }
+.repair-timecode {
+  margin-left: 10px;
+  padding: 0 0 1px;
+  color: var(--action);
+  border-bottom: 1px solid #a5b7af;
+  background: transparent;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.repair-copy p { margin: 7px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.repair-copy small { display: block; margin-top: 5px; color: var(--text); font-size: 11px; }
+.repair-actions { display: flex; align-items: center; gap: 10px; }
+.approved-label { display: inline-flex; align-items: center; gap: 4px; color: var(--pass); font-size: 11px; font-weight: 650; }
+.approved-label svg { width: 13px; }
+.repair-preview { padding: 22px; border-top: 1px solid var(--line-strong); background: var(--surface-muted); }
+.repair-preview > header { display: flex; justify-content: space-between; gap: 18px; }
+.repair-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 18px; }
+.repair-comparison > div { min-width: 0; }
+.repair-comparison strong { display: block; margin-bottom: 8px; font-size: 12px; }
+.repair-comparison video { width: 100%; aspect-ratio: 16 / 9; display: block; background: #171917; object-fit: contain; }
+.repair-comparison p { margin: 0; color: var(--muted); font-size: 13px; }
+.repair-preview-actions { display: flex; gap: 10px; margin-top: 18px; }
+.repair-error { margin: 8px 0 0 !important; color: var(--critical) !important; }
+.apply-error { padding: 0 22px 18px; }
+.repaired-output { display: grid; grid-template-columns: minmax(220px, 0.75fr) minmax(300px, 1fr) auto; align-items: center; gap: 24px; padding: 22px; border-top: 1px solid var(--line-strong); background: var(--pass-bg); }
+.repaired-output small { display: block; margin-top: 8px; color: var(--muted); font-size: 12px; }
+.repaired-output video { width: 100%; max-height: 260px; background: #171917; }
+.download-repair { text-decoration: none; white-space: nowrap; }
+
 .review-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1.75fr) minmax(360px, 1fr);
@@ -468,6 +529,10 @@ svg { flex: 0 0 auto; }
   .promise-summary + .promise-summary { padding-left: 0; border-left: 0; }
   .findings-panel { border-top: 1px solid var(--line); border-left: 0; }
   .check-details ul { grid-template-columns: minmax(0, 1fr); }
+  .repair-item { grid-template-columns: minmax(0, 1fr) auto; }
+  .repair-class { grid-column: 1 / -1; }
+  .repaired-output { grid-template-columns: minmax(0, 1fr); }
+  .download-repair { justify-self: start; }
 }
 
 @media (max-width: 560px) {
@@ -492,6 +557,12 @@ svg { flex: 0 0 auto; }
   .finding-item { padding: 18px 16px; }
   .finding-title-row { align-items: flex-start; flex-direction: column; gap: 7px; }
   .timecode-button, .finding-category { align-self: flex-start; }
+  .repair-header, .repair-item { align-items: stretch; flex-direction: column; }
+  .repair-header { display: flex; }
+  .repair-item { display: flex; }
+  .repair-actions { align-items: flex-start; flex-direction: column; }
+  .repair-comparison { grid-template-columns: minmax(0, 1fr); }
+  .repair-preview-actions { flex-direction: column; }
 }
 
 @media (prefers-reduced-motion: reduce) {

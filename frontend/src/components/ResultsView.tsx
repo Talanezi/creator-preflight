@@ -13,6 +13,7 @@ import {
   Tag,
 } from "lucide-react";
 import type { Finding, FindingStatus, PreflightReport } from "../types/preflight";
+import { RepairPanel } from "./RepairPanel";
 import {
   findingCategory,
   findingTitle,
@@ -26,6 +27,7 @@ interface ResultsViewProps {
   report: PreflightReport;
   filename?: string;
   previewUrl?: string | null;
+  sourceFile?: File | null;
 }
 
 const verdictCopy: Record<FindingStatus, { label: string; description: string }> = {
@@ -48,6 +50,7 @@ export function ResultsView({
   report,
   filename = "creator-export-final.mp4",
   previewUrl,
+  sourceFile = null,
 }: ResultsViewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const categories = useMemo(
@@ -64,6 +67,11 @@ export function ResultsView({
   const seekTo = (finding: Finding) => {
     if (finding.timestamp_start_seconds === null || !videoRef.current) return;
     videoRef.current.currentTime = finding.timestamp_start_seconds;
+    videoRef.current.focus({ preventScroll: true });
+  };
+  const seekToSeconds = (seconds: number) => {
+    if (!videoRef.current) return;
+    videoRef.current.currentTime = seconds;
     videoRef.current.focus({ preventScroll: true });
   };
 
@@ -115,6 +123,13 @@ export function ResultsView({
           <ClaimReviewSummaryView report={report} />
         </div>
       )}
+
+      <RepairPanel
+        report={report}
+        sourceFile={sourceFile}
+        originalPreviewUrl={previewUrl}
+        onSeek={seekToSeconds}
+      />
 
       <div className="review-workspace">
         <section className="media-review" aria-label="Video review">

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { needsReviewReport } from "../mocks/reports";
-import { fetchCapabilities, PreflightApiError, scanPreflight } from "./preflight";
+import { applyRepairs, fetchCapabilities, PreflightApiError, previewRepair, scanPreflight } from "./preflight";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -144,6 +144,42 @@ describe("preflight API client", () => {
       reviewMode: "local",
     })).rejects.toMatchObject({ code: "invalid_response" });
   });
+
+  it("constructs narrow preview and apply multipart repair requests", async () => {
+    const requests: Array<{ url: string; form: FormData }> = [];
+    vi.stubGlobal("fetch", vi.fn((url: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ url: String(url), form: init?.body as FormData });
+      return Promise.resolve(videoResponse());
+    }));
+    const source = new File(["source"], "original.mp4", { type: "video/mp4" });
+    const operation = { operation_type: "REMOVE_RANGE" as const, start_seconds: 2, end_seconds: 5 };
+
+    const preview = await previewRepair(source, operation);
+    const applied = await applyRepairs(source, [operation]);
+
+    expect(requests.map((item) => item.url)).toEqual([
+      "/api/v1/repairs/preview",
+      "/api/v1/repairs/apply",
+    ]);
+    expect(JSON.parse(String(requests[0].form.get("operation_json")))).toEqual(operation);
+    expect(JSON.parse(String(requests[1].form.get("operations_json")))).toEqual({ operations: [operation] });
+    expect((requests[0].form.get("file") as File).name).toBe("original.mp4");
+    expect(preview.outputDurationSeconds).toBe(6);
+    expect(applied.removedDurationSeconds).toBe(3);
+  });
+
+  it("surfaces structured repair-render failures", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({
+      error: { code: "repair_ranges_overlap", message: "Approved repair ranges must not overlap.", details: null },
+    }, 400)));
+    await expect(applyRepairs(
+      new File(["source"], "source.mp4", { type: "video/mp4" }),
+      [
+        { operation_type: "REMOVE_RANGE", start_seconds: 1, end_seconds: 3 },
+        { operation_type: "REMOVE_RANGE", start_seconds: 2, end_seconds: 4 },
+      ],
+    )).rejects.toMatchObject({ code: "repair_ranges_overlap", status: 400 });
+  });
 });
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -167,4 +203,16 @@ function capabilitiesFixture() {
     maximum_video_upload_size_bytes: 2_147_483_648,
     full_review_unavailable_reasons: [],
   };
+}
+
+function videoResponse(): Response {
+  return new Response(new Blob(["repaired-video"], { type: "video/mp4" }), {
+    status: 200,
+    headers: {
+      "Content-Type": "video/mp4",
+      "X-Repair-Original-Duration": "9",
+      "X-Repair-Output-Duration": "6",
+      "X-Repair-Removed-Duration": "3",
+    },
+  });
 }

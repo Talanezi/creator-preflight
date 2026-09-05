@@ -82,7 +82,7 @@ def test_unified_api_scan_returns_preflight_report(video_with_audio: Path) -> No
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["schema_version"] == "1.5"
+    assert payload["schema_version"] == "1.6"
     assert payload["review_mode"] == "local"
     assert payload["scan_completeness"] == "COMPLETE"
     assert payload["ai_review"]["status"] == "disabled"
@@ -107,7 +107,7 @@ def test_unified_api_anomaly_report_matches_real_frontend_contract(
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["schema_version"] == "1.5"
+    assert payload["schema_version"] == "1.6"
     assert payload["ai_review"]["status"] == "disabled"
     assert payload["verdict"] == "NEEDS_REVIEW"
     assert payload["media"]["width"] == 1280
@@ -195,6 +195,126 @@ def test_process_local_scan_capacity_returns_structured_busy(video_with_audio: P
         api_module._scan_capacity.release()
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "scan_capacity_reached"
+
+
+def test_repair_preview_and_apply_return_playable_mp4_and_cleanup(
+    api_anomaly_video: Path, tmp_path: Path, monkeypatch
+) -> None:
+    created: list[Path] = []
+
+    def temporary_repair_directory(*, prefix: str) -> str:
+        path = tmp_path / f"{prefix}{len(created)}"
+        path.mkdir()
+        created.append(path)
+        return str(path)
+
+    monkeypatch.setattr(api_module, "mkdtemp", temporary_repair_directory)
+    operation = {"operation_type": "REMOVE_RANGE", "start_seconds": 2, "end_seconds": 5}
+    with api_anomaly_video.open("rb") as media_file:
+        preview = client.post(
+            "/api/v1/repairs/preview",
+            files={"file": ("source video.mp4", media_file, "video/mp4")},
+            data={"operation_json": json.dumps(operation)},
+        )
+    assert preview.status_code == 200, preview.text
+    assert preview.headers["content-type"].startswith("video/mp4")
+    assert preview.headers["content-disposition"].endswith('filename="source-video.repair-preview.mp4"')
+    preview_path = tmp_path / "returned-preview.mp4"
+    preview_path.write_bytes(preview.content)
+    preview_media = api_module.MediaInspector().inspect(preview_path)
+    assert preview_media.has_video is True
+    assert preview_media.has_audio is True
+
+    with api_anomaly_video.open("rb") as media_file:
+        applied = client.post(
+            "/api/v1/repairs/apply",
+            files={"file": ("source video.mp4", media_file, "video/mp4")},
+            data={"operations_json": json.dumps({"operations": [operation]})},
+        )
+    assert applied.status_code == 200, applied.text
+    assert float(applied.headers["x-repair-removed-duration"]) == pytest.approx(3)
+    assert float(applied.headers["x-repair-output-duration"]) == pytest.approx(9, abs=0.3)
+    assert applied.headers["content-disposition"].endswith('filename="source-video.repaired.mp4"')
+    output_path = tmp_path / "returned-repair.mp4"
+    output_path.write_bytes(applied.content)
+    output_media = api_module.MediaInspector().inspect(output_path)
+    assert output_media.has_video is True
+    assert output_media.has_audio is True
+    assert created and all(not path.exists() for path in created)
+
+
+def test_repair_api_reuses_upload_limit_origin_and_capacity(
+    video_with_audio: Path, monkeypatch
+) -> None:
+    operation = json.dumps({"operation_type": "REMOVE_RANGE", "start_seconds": 0.2, "end_seconds": 0.4})
+    with video_with_audio.open("rb") as media_file:
+        denied = client.post(
+            "/api/v1/repairs/preview",
+            headers={"Origin": "https://malicious.example"},
+            files={"file": ("video.mp4", media_file, "video/mp4")},
+            data={"operation_json": operation},
+        )
+    assert denied.status_code == 403
+    assert denied.json()["error"]["code"] == "request_origin_not_allowed"
+
+    config = PreflightConfig()
+    config.api.maximum_video_upload_size_bytes = 3
+    monkeypatch.setattr(api_module, "_api_config", lambda: (config, "test"))
+    too_large = client.post(
+        "/api/v1/repairs/preview",
+        files={"file": ("video.mp4", b"four", "video/mp4")},
+        data={"operation_json": operation},
+    )
+    assert too_large.status_code == 413
+    assert too_large.json()["error"]["code"] == "video_upload_too_large"
+
+    config.api.maximum_video_upload_size_bytes = 1_000_000
+    config.api.maximum_concurrent_scans = 1
+    assert api_module._scan_capacity.acquire(1) is True
+    try:
+        with video_with_audio.open("rb") as media_file:
+            busy = client.post(
+                "/api/v1/repairs/preview",
+                files={"file": ("video.mp4", media_file, "video/mp4")},
+                data={"operation_json": operation},
+            )
+    finally:
+        api_module._scan_capacity.release()
+    assert busy.status_code == 503
+    assert busy.json()["error"]["code"] == "scan_capacity_reached"
+
+
+def test_repair_api_rejects_overlapping_and_entire_video_operations(
+    video_with_audio: Path,
+) -> None:
+    overlapping = {
+        "operations": [
+            {"operation_type": "REMOVE_RANGE", "start_seconds": 0.1, "end_seconds": 0.5},
+            {"operation_type": "REMOVE_RANGE", "start_seconds": 0.4, "end_seconds": 0.8},
+        ]
+    }
+    with video_with_audio.open("rb") as media_file:
+        response = client.post(
+            "/api/v1/repairs/apply",
+            files={"file": ("video.mp4", media_file, "video/mp4")},
+            data={"operations_json": json.dumps(overlapping)},
+        )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "repair_ranges_overlap"
+
+    entire = {
+        "operations": [
+            {"operation_type": "REMOVE_RANGE", "start_seconds": 0, "end_seconds": 1},
+        ]
+    }
+    with video_with_audio.open("rb") as media_file:
+        response = client.post(
+            "/api/v1/repairs/apply",
+            files={"file": ("video.mp4", media_file, "video/mp4")},
+            data={"operations_json": json.dumps(entire)},
+        )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "repair_would_remove_entire_video"
 
 
 def test_browser_mp4_full_review_preserves_provider_media_identity(

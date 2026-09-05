@@ -132,7 +132,7 @@ const findings: Finding[] = [
 ];
 
 export const needsReviewReport: PreflightReport = {
-  schema_version: "1.5",
+  schema_version: "1.6",
   verdict: "NEEDS_REVIEW",
   scan_completeness: "COMPLETE",
   review_mode: "local",
@@ -186,6 +186,35 @@ export const needsReviewReport: PreflightReport = {
     insufficient_evidence_count: 0,
     explanation: null,
   },
+  repair_plan: {
+    proposals: findings.map((finding, index) => {
+      const repairable = finding.code === "VIDEO_BLACK_SEGMENT";
+      return {
+        proposal_id: `mock-repair-${index}`,
+        finding_code: finding.code,
+        finding_title: String(finding.details?.title ?? finding.code),
+        explanation: repairable
+          ? "Remove this black interval and ripple the remaining video and audio together. Preview this pacing change first."
+          : "Creator Preflight can show this evidence, but cannot make a trustworthy edit without your judgment.",
+        source: finding.source,
+        repairability: repairable ? "PREVIEW_REQUIRED" as const : "HUMAN_ONLY" as const,
+        operation: repairable ? {
+          operation_type: "REMOVE_RANGE" as const,
+          start_seconds: finding.timestamp_start_seconds ?? 0,
+          end_seconds: finding.timestamp_end_seconds ?? 0,
+        } : null,
+        start_seconds: finding.timestamp_start_seconds,
+        end_seconds: finding.timestamp_end_seconds,
+        expected_duration_change_seconds: repairable ? -3 : null,
+        original_start_seconds: null,
+        original_end_seconds: null,
+        evidence: finding.details,
+      };
+    }),
+    safe_count: 0,
+    preview_required_count: 1,
+    human_only_count: 4,
+  },
   scan_duration_seconds: 0.159,
 };
 
@@ -197,6 +226,12 @@ export const readyReport: PreflightReport = {
   passed_check_count: 14,
   warning_count: 0,
   critical_count: 0,
+  repair_plan: {
+    proposals: [],
+    safe_count: 0,
+    preview_required_count: 0,
+    human_only_count: 0,
+  },
   scan_duration_seconds: 0.126,
 };
 
@@ -227,6 +262,31 @@ export const blockedReport: PreflightReport = {
   passed_check_count: 13,
   warning_count: 0,
   critical_count: 1,
+  repair_plan: {
+    proposals: [{
+      proposal_id: "mock-blocked-human-only",
+      finding_code: "VIDEO_HEIGHT_BELOW_MINIMUM",
+      finding_title: "Video height below minimum",
+      explanation: "Creator Preflight can show this evidence, but cannot make a trustworthy edit without your judgment.",
+      source: "package.video",
+      repairability: "HUMAN_ONLY",
+      operation: null,
+      start_seconds: null,
+      end_seconds: null,
+      expected_duration_change_seconds: null,
+      original_start_seconds: null,
+      original_end_seconds: null,
+      evidence: {
+        category: "package",
+        title: "Video height below minimum",
+        actual_height: 540,
+        minimum_height: 720,
+      },
+    }],
+    safe_count: 0,
+    preview_required_count: 0,
+    human_only_count: 1,
+  },
 };
 
 export const runtimeError = {

@@ -128,6 +128,38 @@ export interface ClaimReviewSummary {
   explanation: string | null;
 }
 
+export type Repairability = "SAFE" | "PREVIEW_REQUIRED" | "HUMAN_ONLY";
+export type RepairOperationType = "REMOVE_RANGE";
+
+export interface RepairOperation {
+  operation_type: RepairOperationType;
+  start_seconds: number;
+  end_seconds: number;
+}
+
+export interface RepairProposal {
+  proposal_id: string;
+  finding_code: string;
+  finding_title: string;
+  explanation: string;
+  source: string;
+  repairability: Repairability;
+  operation: RepairOperation | null;
+  start_seconds: number | null;
+  end_seconds: number | null;
+  expected_duration_change_seconds: number | null;
+  original_start_seconds: number | null;
+  original_end_seconds: number | null;
+  evidence: Record<string, JsonValue> | null;
+}
+
+export interface RepairPlan {
+  proposals: RepairProposal[];
+  safe_count: number;
+  preview_required_count: number;
+  human_only_count: number;
+}
+
 export interface PreflightReport {
   schema_version: string;
   verdict: FindingStatus;
@@ -148,5 +180,6 @@ export interface PreflightReport {
   promise_check: PromiseCheckSummary;
   viewer_pass: ViewerPassSummary;
   claim_review: ClaimReviewSummary;
+  repair_plan: RepairPlan;
   scan_duration_seconds: number;
 }

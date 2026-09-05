@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
+import shutil
 from functools import partial
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from tempfile import TemporaryDirectory, mkdtemp
 from threading import Lock
 
 import anyio
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import ValidationError
+from starlette.background import BackgroundTask
 
 from creator_preflight.config import ConfigurationError, PreflightConfig, load_config
 from creator_preflight.detectors import DetectorExecutionError
@@ -26,6 +30,8 @@ from creator_preflight.models import (
     PublishingPackage,
     ReviewMode,
 )
+from creator_preflight.repair_models import RepairOperation, RepairOperationBatch
+from creator_preflight.repairs import FFmpegRepairEngine, RepairError
 from creator_preflight.thumbnails import ThumbnailValidationError, inspect_thumbnail
 
 app = FastAPI(title="Creator Preflight", version="0.1.0")
@@ -130,6 +136,17 @@ async def review_mode_error_handler(request: Request, exc: ReviewModeError) -> J
     return _error_response(400, "review_mode_invalid", exc.message)
 
 
+@app.exception_handler(RepairError)
+async def repair_error_handler(request: Request, exc: RepairError) -> JSONResponse:
+    del request
+    status_code = {
+        "repair_encoder_unavailable": 503,
+        "repair_render_unavailable": 503,
+        "repair_render_timeout": 504,
+    }.get(exc.code, 400)
+    return _error_response(status_code, exc.code, exc.message, exc.details)
+
+
 @app.get("/api/v1/capabilities", response_model=PreflightCapabilities)
 async def capabilities() -> PreflightCapabilities:
     config, _ = _api_config()
@@ -222,6 +239,54 @@ async def scan_uploaded_package(
             await thumbnail.close()
 
 
+@app.post("/api/v1/repairs/preview", response_class=FileResponse)
+async def preview_repair(
+    request: Request,
+    file: UploadFile = File(...),
+    operation_json: str = Form(...),
+) -> FileResponse:
+    """Render one short before/after context clip for an allowlisted repair."""
+
+    try:
+        operation = RepairOperation.model_validate_json(operation_json)
+    except (ValidationError, ValueError, TypeError) as exc:
+        await file.close()
+        raise RepairError(
+            "repair_operation_invalid",
+            "The proposed repair operation is invalid.",
+        ) from exc
+    return await _render_repair_response(
+        request=request,
+        file=file,
+        operations=[operation],
+        preview=True,
+    )
+
+
+@app.post("/api/v1/repairs/apply", response_class=FileResponse)
+async def apply_repairs(
+    request: Request,
+    file: UploadFile = File(...),
+    operations_json: str = Form(...),
+) -> FileResponse:
+    """Render one new MP4 containing all approved, non-overlapping repairs."""
+
+    try:
+        batch = RepairOperationBatch.model_validate_json(operations_json)
+    except (ValidationError, ValueError, TypeError) as exc:
+        await file.close()
+        raise RepairError(
+            "repair_operation_invalid",
+            "The approved repair operations are invalid.",
+        ) from exc
+    return await _render_repair_response(
+        request=request,
+        file=file,
+        operations=batch.operations,
+        preview=False,
+    )
+
+
 async def _copy_upload(upload: UploadFile, destination: Path, maximum_bytes: int) -> None:
     written = 0
     with destination.open("wb") as output:
@@ -230,6 +295,77 @@ async def _copy_upload(upload: UploadFile, destination: Path, maximum_bytes: int
             if written > maximum_bytes:
                 raise UploadLimitError(maximum_bytes)
             output.write(chunk)
+
+
+async def _render_repair_response(
+    *,
+    request: Request,
+    file: UploadFile,
+    operations: list[RepairOperation],
+    preview: bool,
+) -> FileResponse:
+    config, _ = _api_config()
+    try:
+        _require_allowed_origin(request, config)
+    except RequestOriginError:
+        await file.close()
+        raise
+    if not _scan_capacity.acquire(config.api.maximum_concurrent_scans):
+        await file.close()
+        raise ScanBusyError()
+    temporary_directory = Path(mkdtemp(prefix="creator-preflight-repair-"))
+    response_created = False
+    try:
+        source_path = _media_temp_path(str(temporary_directory), file.filename)
+        await _copy_upload(
+            file,
+            source_path,
+            config.api.maximum_video_upload_size_bytes,
+        )
+        media = await anyio.to_thread.run_sync(MediaInspector().inspect, source_path)
+        output_path = temporary_directory / (
+            "repair-preview.mp4" if preview else "repaired.mp4"
+        )
+        engine = FFmpegRepairEngine()
+        if preview:
+            result = await anyio.to_thread.run_sync(
+                partial(
+                    engine.render_preview,
+                    source_path,
+                    output_path,
+                    operations[0],
+                    media=media,
+                )
+            )
+        else:
+            result = await anyio.to_thread.run_sync(
+                partial(
+                    engine.render,
+                    source_path,
+                    output_path,
+                    operations,
+                    media=media,
+                )
+            )
+        filename = _repair_download_filename(file.filename, preview=preview)
+        response = FileResponse(
+            result.output_path,
+            media_type="video/mp4",
+            filename=filename,
+            background=BackgroundTask(shutil.rmtree, temporary_directory, True),
+            headers={
+                "X-Repair-Original-Duration": f"{result.original_duration_seconds:.6f}",
+                "X-Repair-Output-Duration": f"{result.output_duration_seconds:.6f}",
+                "X-Repair-Removed-Duration": f"{result.removed_duration_seconds:.6f}",
+            },
+        )
+        response_created = True
+        return response
+    finally:
+        _scan_capacity.release()
+        await file.close()
+        if not response_created:
+            shutil.rmtree(temporary_directory, ignore_errors=True)
 
 
 async def _copy_optional_bounded(upload: UploadFile | None, destination: Path, copy_limit: int) -> Path | None:
@@ -251,6 +387,13 @@ async def _copy_optional_bounded(upload: UploadFile | None, destination: Path, c
 def _media_temp_path(directory: str, filename: str | None) -> Path:
     suffix = Path(filename or "").suffix.lower()
     return Path(directory) / f"upload{suffix if suffix in _VIDEO_SUFFIXES else '.media'}"
+
+
+def _repair_download_filename(filename: str | None, *, preview: bool) -> str:
+    stem = Path(filename or "video").stem
+    safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "-", stem).strip(".-") or "video"
+    suffix = "repair-preview" if preview else "repaired"
+    return f"{safe_stem}.{suffix}.mp4"
 
 
 def _parse_review_mode(value: str) -> ReviewMode:

@@ -90,9 +90,18 @@ def test_reconciliation_ordering_and_json_serialization(anomaly_video: Path) -> 
     ]
     payload = json.loads(report.model_dump_json())
     assert payload["verdict"] == "NEEDS_REVIEW"
-    assert payload["schema_version"] == "1.5"
+    assert payload["schema_version"] == "1.6"
     assert payload["scan_completeness"] == "COMPLETE"
     assert payload["ai_review"]["status"] == "disabled"
+    assert payload["repair_plan"]["preview_required_count"] == 1
+    black_repair = payload["repair_plan"]["proposals"][0]
+    assert black_repair["finding_code"] == "VIDEO_BLACK_SEGMENT"
+    assert black_repair["repairability"] == "PREVIEW_REQUIRED"
+    assert black_repair["operation"] == {
+        "operation_type": "REMOVE_RANGE",
+        "start_seconds": pytest.approx(2.0, abs=0.2),
+        "end_seconds": pytest.approx(5.0, abs=0.2),
+    }
 
     repeated = PreflightScanner(config=config).scan(anomaly_video, _valid_package())
     assert [finding.code for finding in repeated.findings] == codes

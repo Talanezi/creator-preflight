@@ -7,6 +7,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
+from creator_preflight.repair_models import RepairPlan
+
 
 class FindingSeverity(str, Enum):
     INFO = "info"
@@ -238,7 +240,7 @@ class PreflightReport(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "1.5"
+    schema_version: str = "1.6"
     verdict: FindingStatus
     scan_completeness: ScanCompleteness = ScanCompleteness.COMPLETE
     review_mode: ReviewMode = ReviewMode.LOCAL
@@ -257,6 +259,7 @@ class PreflightReport(BaseModel):
     promise_check: PromiseCheckSummary
     viewer_pass: ViewerPassSummary
     claim_review: ClaimReviewSummary
+    repair_plan: RepairPlan = Field(default_factory=RepairPlan)
     scan_duration_seconds: float = Field(ge=0)
 
 

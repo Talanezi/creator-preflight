@@ -51,6 +51,7 @@ from creator_preflight.promise_check import (
     PromiseReviewer,
     promise_findings,
 )
+from creator_preflight.repairs import build_repair_plan
 from creator_preflight.rules import evaluate_package_rules
 from creator_preflight.transcription import (
     SpeechTranscriber,
@@ -588,6 +589,7 @@ class PreflightScanner:
             promise_check=promise_summary,
             viewer_pass=viewer_summary,
             claim_review=claim_summary,
+            repair_plan=build_repair_plan(findings),
             scan_duration_seconds=perf_counter() - started_at,
         )
 

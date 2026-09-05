@@ -150,6 +150,7 @@ export function App() {
           report={report}
           filename={inputs.video?.name ?? "selected video"}
           previewUrl={previewUrl}
+          sourceFile={inputs.video}
         />
       )}
       {view === "error" && error && <ErrorState {...error} onRetry={returnToForm} />}

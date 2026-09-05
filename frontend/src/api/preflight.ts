@@ -9,6 +9,7 @@ import type {
   MediaInspection,
   PreflightCapabilities,
   PreflightReport,
+  RepairOperation,
   ReviewMode,
 } from "../types/preflight";
 
@@ -19,6 +20,13 @@ export interface PreflightScanInput {
   captions?: File | null;
   thumbnail?: File | null;
   reviewMode: ReviewMode;
+}
+
+export interface RepairMediaResult {
+  blob: Blob;
+  originalDurationSeconds: number | null;
+  outputDurationSeconds: number | null;
+  removedDurationSeconds: number | null;
 }
 
 interface StructuredErrorResponse {
@@ -109,6 +117,28 @@ export async function fetchCapabilities(
     });
   }
   return payload;
+}
+
+export async function previewRepair(
+  video: File,
+  operation: RepairOperation,
+  options: { signal?: AbortSignal } = {},
+): Promise<RepairMediaResult> {
+  const form = new FormData();
+  form.append("file", video, video.name);
+  form.append("operation_json", JSON.stringify(operation));
+  return requestRepairMedia("/api/v1/repairs/preview", form, options.signal);
+}
+
+export async function applyRepairs(
+  video: File,
+  operations: RepairOperation[],
+  options: { signal?: AbortSignal } = {},
+): Promise<RepairMediaResult> {
+  const form = new FormData();
+  form.append("file", video, video.name);
+  form.append("operations_json", JSON.stringify({ operations }));
+  return requestRepairMedia("/api/v1/repairs/apply", form, options.signal);
 }
 
 export function errorPresentation(error: unknown): { title: string; message: string; detail?: string } {
@@ -232,7 +262,42 @@ function isPreflightReport(value: unknown): value is PreflightReport {
     && isPromiseCheckSummary(value.promise_check)
     && isViewerPassSummary(value.viewer_pass)
     && isClaimReviewSummary(value.claim_review)
+    && isRepairPlan(value.repair_plan)
     && isNonnegativeNumber(value.scan_duration_seconds);
+}
+
+function isRepairPlan(value: unknown): boolean {
+  return isRecord(value)
+    && Array.isArray(value.proposals)
+    && value.proposals.every(isRepairProposal)
+    && isNonnegativeNumber(value.safe_count)
+    && isNonnegativeNumber(value.preview_required_count)
+    && isNonnegativeNumber(value.human_only_count);
+}
+
+function isRepairProposal(value: unknown): boolean {
+  return isRecord(value)
+    && typeof value.proposal_id === "string"
+    && typeof value.finding_code === "string"
+    && typeof value.finding_title === "string"
+    && typeof value.explanation === "string"
+    && typeof value.source === "string"
+    && (value.repairability === "SAFE" || value.repairability === "PREVIEW_REQUIRED" || value.repairability === "HUMAN_ONLY")
+    && (value.operation === null || isRepairOperation(value.operation))
+    && isNullableNumber(value.start_seconds)
+    && isNullableNumber(value.end_seconds)
+    && isNullableNumber(value.expected_duration_change_seconds)
+    && isNullableNumber(value.original_start_seconds)
+    && isNullableNumber(value.original_end_seconds)
+    && (value.evidence === null || (isRecord(value.evidence) && isJsonObject(value.evidence)));
+}
+
+function isRepairOperation(value: unknown): boolean {
+  return isRecord(value)
+    && value.operation_type === "REMOVE_RANGE"
+    && isNonnegativeNumber(value.start_seconds)
+    && isNonnegativeNumber(value.end_seconds)
+    && value.end_seconds > value.start_seconds;
 }
 
 function isExecutionIssue(value: unknown): boolean {
@@ -399,4 +464,49 @@ function isJsonValue(value: unknown): boolean {
   if (typeof value === "number") return Number.isFinite(value);
   if (Array.isArray(value)) return value.every(isJsonValue);
   return isRecord(value) && isJsonObject(value);
+}
+
+async function requestRepairMedia(
+  endpoint: string,
+  form: FormData,
+  signal?: AbortSignal,
+): Promise<RepairMediaResult> {
+  let response: Response;
+  try {
+    response = await fetch(endpoint, { method: "POST", body: form, signal });
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new PreflightApiError("Could not reach the local repair service.", {
+      code: "backend_unreachable",
+      cause: error,
+    });
+  }
+  if (!response.ok) {
+    const payload = await parseJsonResponse(response);
+    const structured = parseStructuredError(payload);
+    throw new PreflightApiError(
+      structured?.error.message ?? `The repair request failed with HTTP ${response.status}.`,
+      { code: structured?.error.code ?? "repair_request_failed", status: response.status },
+    );
+  }
+  const blob = await response.blob();
+  if (!blob.size || !response.headers.get("content-type")?.startsWith("video/mp4")) {
+    throw new PreflightApiError("The backend returned an invalid repair video.", {
+      code: "repair_response_invalid",
+      status: response.status,
+    });
+  }
+  return {
+    blob,
+    originalDurationSeconds: numericHeader(response, "X-Repair-Original-Duration"),
+    outputDurationSeconds: numericHeader(response, "X-Repair-Output-Duration"),
+    removedDurationSeconds: numericHeader(response, "X-Repair-Removed-Duration"),
+  };
+}
+
+function numericHeader(response: Response, name: string): number | null {
+  const raw = response.headers.get(name);
+  if (raw === null) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : null;
 }

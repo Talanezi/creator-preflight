@@ -2,9 +2,9 @@
 
 ## Current milestone
 
-Milestone 16 — Trustworthy Full Review.
+Milestone 17 — Repair Mode.
 
-Status: completed on 2026-09-04. The browser now offers explicit Full Review and Local Checks Only modes, preserves validated media identity through the Gemini upload boundary, and reports scan completeness separately from the creator-content verdict. A real browser-selected MP4 completed all three Gemini tasks through one shared upload with no findings or console errors. The owner should still perform the requested ordinary real-world MP4 browser acceptance check before externally accepting the milestone.
+Status: completed on 2026-09-05. Typed backend-owned repair planning, safe preview/apply rendering, and the session-local browser Repair Queue are implemented and release-gated. Deterministic black repair acceptance succeeded end to end. Both permitted real Full Review attempts completed and cleaned up remotely, but Gemini abstained from the previously established accidental-repetition observation; under the milestone's conditional acceptance rule no duplicate repair was fabricated and accepted Viewer behavior was left unchanged.
 
 ## Completed
 
@@ -109,6 +109,11 @@ Status: completed on 2026-09-04. The browser now offers explicit Full Review and
 - Video uploads are bounded to 2 GiB by default during streamed disk writes. PNG/JPEG thumbnail validation now bounds dimensions, total pixels, and PNG decompression output.
 - Synchronous FFmpeg/provider scanning runs behind an AnyIO worker-thread boundary, with a configurable process-local scan limit and structured busy response.
 - Expensive browser scan requests enforce a configurable exact Origin allowlist for the normal localhost/127.0.0.1 Vite workflow while preserving Origin-less CLI/API clients.
+- Strict schema 1.6 repair contracts classify report findings as safe, preview-required, or human-only and expose only one allowlisted operation: `REMOVE_RANGE`.
+- Deterministic repair planning maps an accepted accidental-repetition finding to removal of its repeated occurrence, maps a black interval to a preview-required removal, and leaves all other current findings to creator judgment without another Gemini call.
+- Dedicated FFmpeg repair rendering validates untrusted original-timeline ranges, rejects overlaps and effectively whole-video removal, supports multiple non-overlapping cuts and video-only input, removes video and audio together, and creates a new H.264/AAC MP4 without overwriting the source.
+- Narrow preview/apply multipart APIs reuse upload limits, Origin protection, process capacity, worker-thread execution, structured errors, and temporary-file cleanup. Preview renders only bounded context around one repair; apply returns one downloadable repaired export.
+- The React Repair Queue uses the backend plan, supports original/proposed preview comparison, explicit approval/cancel/removal, multiple compatible approvals, one final render, playable/downloadable repaired-file state, render-error recovery, and full repair-state cleanup on New Scan.
 
 ## Not implemented
 
@@ -119,6 +124,11 @@ Status: completed on 2026-09-04. The browser now offers explicit Full Review and
 ## Blockers
 
 None known.
+
+## Known repair limitations
+
+- M17 supports only removal of validated time ranges and normalizes repaired output to MP4/H.264/AAC. It is not a general editor and does not re-scan or certify the repaired export.
+- The controlled live M17 Viewer fixture did not yield `AI_ACCIDENTAL_REPETITION` in either permitted acceptance attempt. The first returned only `AI_VISIBLE_PLACEHOLDER`; the provider-variance retry returned a clean Viewer result. Accepted M13 evidence and automated M17 tests cover the duplicate interval contract, removal of the repeated occurrence, and repair mapping, but a real provider-returned duplicate was not previewed or rendered during M17.
 
 ## Known detector limitations
 
@@ -312,3 +322,8 @@ None known.
 - The live Milestone 16 Full Review used one shared Files API video upload, four generation calls (Promise, Viewer, Claim extraction, one batched grounding request), and one explicit cleanup. No retry was used. The same provider lifecycle remains covered by focused upload-count and cleanup tests.
 - Milestone 16 unavailable regression — a missing-key Full Review preserves completed deterministic results, creates no fake AI observations or content warning, retains the creator-content verdict, reports `PARTIAL` completeness with typed `ai_api_key_missing` execution state, and never produces `BLOCKED`. Local Checks Only makes no Gemini provider call.
 - Milestone 16 `git diff --check` passed after production changes. `.env.local` and generated judge media remained ignored and untracked; no credential value, remote provider file identifier, or generated large binary was added to the diff.
+- Milestone 17 targeted backend validation — `PYTHONPATH=backend/src .venv/bin/python -m pytest backend/tests/test_repairs.py backend/tests/test_api.py backend/tests/test_report.py -q`: 40 passed, 0 failed, with 1 upstream Starlette `TestClient` deprecation warning. Coverage includes repair mapping and degradation, operation validation, actual multi-range/audio/video-only FFmpeg rendering, playable previews, multipart preview/apply responses, upload/origin/capacity protection, response cleanup, and schema 1.6 serialization.
+- Milestone 17 targeted frontend validation — `cd frontend && npm test -- --run src/api/preflight.test.ts src/App.test.tsx`: 2 files and 41 tests passed, 0 failed. Coverage includes repair class/count rendering, preview comparison, approval/cancel/removal, compatible multiple approvals, apply/download state, render-error preservation, multipart clients, and New Scan cleanup.
+- Milestone 17 deterministic black acceptance — the existing 12.0-second anomaly MP4 produced a preview-required `REMOVE_RANGE` proposal for black video at 2.0–5.0 seconds. The bounded repaired preview was a playable 6.0-second MP4; applying the 3.0-second removal produced a 9.0-second MP4 with independently readable 9.0-second video and audio streams. The source SHA-256 remained unchanged and temporary outputs were cleaned.
+- Milestone 17 live duplicate acceptance — two Full Review calls used the existing 48-second problematic Viewer fixture. Both completed with `COMPLETE` AI provenance and successful remote cleanup, and both left the source SHA-256 unchanged. The first returned one accepted visible-placeholder issue; the single permitted provider-variance retry returned a clean Viewer result. Neither returned `AI_ACCIDENTAL_REPETITION`, so no live duplicate proposal, preview, or repaired export was fabricated. No prompt, threshold, or accepted Viewer logic was changed.
+- Milestone 17 final release gate — `.venv/bin/python -m pytest backend/tests`: 199 passed, 0 failed, with 1 upstream Starlette warning. `cd frontend && npm test -- --run`: 2 files and 41 tests passed, 0 failed. `npm run build` passed TypeScript project validation and the Vite 8.2.2 production build with 1,826 modules transformed. `.venv/bin/python -m compileall -q backend/src scripts` passed.
