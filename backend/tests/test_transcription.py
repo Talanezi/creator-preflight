@@ -110,12 +110,9 @@ def test_optional_dependency_or_model_failure_does_not_break_core_scan(
         PublishingPackage(title="Title", description="Description"),
     )
 
-    finding = next(
-        finding
-        for finding in report.findings
-        if finding.code == "CAPTION_TRANSCRIPTION_UNAVAILABLE"
-    )
-    assert finding.status.value == "NEEDS_REVIEW"
+    assert "CAPTION_TRANSCRIPTION_UNAVAILABLE" not in [finding.code for finding in report.findings]
+    assert report.scan_completeness.value == "PARTIAL"
+    assert report.execution_issues[0].component == "captions.transcription"
     assert report.media.has_video is True
     speech_check = next(
         check for check in report.checks if check.check_id == "captions.speech_coverage"

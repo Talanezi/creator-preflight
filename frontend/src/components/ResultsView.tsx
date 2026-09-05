@@ -90,11 +90,31 @@ export function ResultsView({
         </p>
       </header>
 
-      <div className="ai-review-summaries" aria-label="Editorial review summaries">
-        <PromiseSummary report={report} />
-        <ViewerPassSummaryView report={report} />
-        <ClaimReviewSummaryView report={report} />
-      </div>
+      {report.scan_completeness !== "COMPLETE" && (
+        <section className="scan-incomplete" aria-labelledby="scan-incomplete-title">
+          <AlertCircle aria-hidden="true" />
+          <div>
+            <h2 id="scan-incomplete-title">Scan incomplete</h2>
+            <p>
+              Completed content checks found {report.verdict === "READY" ? "no release issue" : "the findings shown below"},
+              but part of the requested review could not finish.
+            </p>
+            <ul>
+              {report.execution_issues.map((issue) => (
+                <li key={`${issue.component}-${issue.reason_code}`}>{issue.message}{issue.retryable ? " Try again shortly." : ""}</li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
+
+      {report.review_mode === "full" && (
+        <div className="ai-review-summaries" aria-label="Editorial review summaries">
+          <PromiseSummary report={report} />
+          <ViewerPassSummaryView report={report} />
+          <ClaimReviewSummaryView report={report} />
+        </div>
+      )}
 
       <div className="review-workspace">
         <section className="media-review" aria-label="Video review">
@@ -301,7 +321,7 @@ function CheckDetails({ report }: { report: PreflightReport }) {
           <li key={check.check_id} className={check.passed ? "is-pass" : "is-flagged"}>
             {check.passed ? <Check aria-hidden="true" /> : <AlertTriangle aria-hidden="true" />}
             <span>{humanizeCheck(check.check_id)}</span>
-            <small>{check.passed ? "Passed" : "Review"}</small>
+            <small>{check.passed ? "Passed" : check.finding_codes.length ? "Review" : "Incomplete"}</small>
           </li>
         ))}
       </ul>

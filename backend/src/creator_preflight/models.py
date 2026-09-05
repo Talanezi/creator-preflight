@@ -20,6 +20,17 @@ class FindingStatus(str, Enum):
     BLOCKED = "BLOCKED"
 
 
+class ReviewMode(str, Enum):
+    FULL = "full"
+    LOCAL = "local"
+
+
+class ScanCompleteness(str, Enum):
+    COMPLETE = "COMPLETE"
+    PARTIAL = "PARTIAL"
+    FAILED = "FAILED"
+
+
 class Finding(BaseModel):
     """Stable normalized finding shape shared by later detectors."""
 
@@ -145,6 +156,17 @@ class AIReviewSummary(BaseModel):
     reason_code: str | None = Field(default=None, min_length=1, max_length=100)
 
 
+class ExecutionIssue(BaseModel):
+    """Safe non-content failure that prevented part of a scan from completing."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    component: str = Field(min_length=1, max_length=100)
+    reason_code: str = Field(min_length=1, max_length=100)
+    message: str = Field(min_length=1, max_length=500)
+    retryable: bool = False
+
+
 class PromiseCheckStatus(str, Enum):
     DISABLED = "disabled"
     ALIGNED = "aligned"
@@ -216,8 +238,11 @@ class PreflightReport(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: str = "1.4"
+    schema_version: str = "1.5"
     verdict: FindingStatus
+    scan_completeness: ScanCompleteness = ScanCompleteness.COMPLETE
+    review_mode: ReviewMode = ReviewMode.LOCAL
+    execution_issues: list[ExecutionIssue] = Field(default_factory=list)
     media: MediaInspection
     findings: list[Finding]
     checks: list[CheckResult]
@@ -244,6 +269,33 @@ class MediaToolAvailability(BaseModel):
     ffprobe_path: str | None
     ffmpeg_available: bool
     ffmpeg_path: str | None
+
+
+class CapabilityReason(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=1, max_length=100)
+    message: str = Field(min_length=1, max_length=300)
+
+
+class PreflightCapabilities(BaseModel):
+    """Non-secret runtime capability information used by the local web client."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ffprobe_available: bool
+    ffmpeg_available: bool
+    gemini_dependency_available: bool
+    gemini_api_key_configured: bool
+    full_review_available: bool
+    local_checks_available: bool
+    transcription_dependency_available: bool
+    transcription_enabled: bool
+    supported_review_modes: list[ReviewMode]
+    maximum_video_upload_size_bytes: int = Field(gt=0)
+    full_review_unavailable_reasons: list[CapabilityReason] = Field(
+        default_factory=list
+    )
 
 
 class ErrorBody(BaseModel):

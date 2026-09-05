@@ -36,6 +36,11 @@ def test_default_detector_configuration_loads() -> None:
     assert config.ai_review.viewer_pass.minimum_issue_confidence == 0.75
     assert config.ai_review.claim_review.enabled is False
     assert config.ai_review.claim_review.maximum_claims == 3
+    assert config.ai_review.promise_check.maximum_thumbnail_pixels == 16_777_216
+    assert config.ai_review.promise_check.maximum_thumbnail_decompressed_bytes == 64_000_000
+    assert config.api.maximum_video_upload_size_bytes == 2_147_483_648
+    assert config.api.maximum_concurrent_scans == 2
+    assert "http://127.0.0.1:5173" in config.api.allowed_browser_origins
     assert config.rules.video.minimum_width == 1280
     assert config.rules.title.maximum_recommended_length == 100
     assert config.rules.description.validate_urls is True

@@ -14,6 +14,7 @@ from creator_preflight.ai_review import (
     AIReviewError,
     AIReviewResult,
     GeminiVideoReviewer,
+    provider_video_mime_type,
 )
 from creator_preflight.ai_smoke_fixture import generate_ai_smoke_video
 from creator_preflight.cli import main
@@ -55,8 +56,9 @@ class FakeFiles:
         self.deleted = False
         self.upload_count = 0
 
-    def upload(self, *, file):
+    def upload(self, *, file, config=None):
         assert file
+        assert config == {"mime_type": "video/mp4", "display_name": Path(file).name}
         self.upload_count += 1
         return self.remote
 
@@ -122,6 +124,22 @@ def test_ai_smoke_fixture_has_expected_duration_and_small_size(tmp_path: Path) -
     assert media.width == 640
     assert media.height == 360
     assert path.stat().st_size < 1_000_000
+
+
+@pytest.mark.parametrize(
+    "format_name, filename, expected",
+    [
+        ("mov,mp4,m4a,3gp,3g2,mj2", "video.mp4", "video/mp4"),
+        ("mov,mp4,m4a,3gp,3g2,mj2", "video.mov", "video/quicktime"),
+        ("matroska,webm", "video.webm", "video/webm"),
+        ("matroska,webm", "video.mkv", None),
+        ("avi", "video.mp4", None),
+    ],
+)
+def test_provider_video_mime_requires_matching_ffprobe_container(
+    format_name: str, filename: str, expected: str | None
+) -> None:
+    assert provider_video_mime_type(format_name, filename) == expected
 
 
 def test_ai_observation_rejects_invalid_confidence_and_timestamps() -> None:
@@ -238,7 +256,8 @@ def test_invalid_provider_output_is_rejected_safely(
 
 def test_provider_timeout_and_api_error_are_structured(tmp_path: Path) -> None:
     class TimeoutFiles(FakeFiles):
-        def upload(self, *, file):
+        def upload(self, *, file, config=None):
+            del file, config
             raise TimeoutError("provider timeout")
 
     timeout_client = FakeClient({"observations": []})
@@ -250,7 +269,8 @@ def test_provider_timeout_and_api_error_are_structured(tmp_path: Path) -> None:
     assert timeout_error.value.code == "ai_provider_timeout"
 
     class BrokenFiles(FakeFiles):
-        def upload(self, *, file):
+        def upload(self, *, file, config=None):
+            del file, config
             raise RuntimeError("provider rejected upload")
 
     broken_client = FakeClient({"observations": []})
@@ -260,6 +280,45 @@ def test_provider_timeout_and_api_error_are_structured(tmp_path: Path) -> None:
             tmp_path / "video.mp4", 12.0, AIReviewConfig(enabled=True)
         )
     assert provider_error.value.code == "ai_upload_failed"
+
+
+@pytest.mark.parametrize(
+    "status_code, expected_code, retryable",
+    [
+        (401, "ai_provider_authentication_failed", False),
+        (403, "ai_provider_permission_denied", False),
+        (429, "ai_provider_quota_exhausted", True),
+        (503, "ai_provider_unavailable", True),
+    ],
+)
+def test_provider_http_statuses_have_safe_reason_codes(
+    tmp_path: Path, status_code: int, expected_code: str, retryable: bool
+) -> None:
+    class ProviderError(Exception):
+        def __init__(self, code: int):
+            super().__init__("sensitive provider detail")
+            self.code = code
+
+    client = FakeClient({"observations": []})
+    client.files.upload = lambda **kwargs: (_ for _ in ()).throw(ProviderError(status_code))
+    with pytest.raises(AIReviewError) as captured:
+        _reviewer(client).review(tmp_path / "video.mp4", 12.0, AIReviewConfig(enabled=True))
+
+    assert captured.value.code == expected_code
+    assert captured.value.retryable is retryable
+    assert "sensitive" not in captured.value.message
+
+
+def test_unsupported_video_container_is_rejected_before_provider_upload(tmp_path: Path) -> None:
+    client = FakeClient({"observations": []})
+    reviewer = _reviewer(client)
+    session = reviewer.open_session(tmp_path / "video.avi", AIReviewConfig(enabled=True))
+
+    with pytest.raises(AIReviewError) as captured:
+        session.start()
+
+    assert captured.value.code == "ai_media_unsupported"
+    assert client.files.upload_count == 0
 
 
 def test_generation_quota_error_is_safe_and_marked_unavailable(tmp_path: Path) -> None:
@@ -379,10 +438,9 @@ def test_ai_failure_preserves_deterministic_findings_and_never_blocks(
 
     assert report.verdict is FindingStatus.NEEDS_REVIEW
     assert report.critical_count == 0
-    assert [finding.code for finding in report.findings] == [
-        "AI_REVIEW_UNAVAILABLE",
-        "TITLE_LENGTH_RECOMMENDATION",
-    ]
+    assert [finding.code for finding in report.findings] == ["TITLE_LENGTH_RECOMMENDATION"]
+    assert report.scan_completeness.value == "PARTIAL"
+    assert report.execution_issues[0].reason_code == "ai_provider_unavailable"
     assert report.ai_review.status.value == "failed"
     assert report.promise_check.status.value == "unavailable"
 
@@ -414,7 +472,9 @@ def test_cli_json_remains_valid_when_ai_is_unavailable(
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
 
-    assert exit_code == 1
+    assert exit_code == 2
     assert payload["ai_review"]["status"] == "unavailable"
-    assert payload["findings"][0]["code"] == "AI_REVIEW_UNAVAILABLE"
+    assert payload["verdict"] == "READY"
+    assert payload["scan_completeness"] == "PARTIAL"
+    assert payload["findings"] == []
     assert captured.err == ""

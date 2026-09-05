@@ -168,7 +168,9 @@ def test_clean_summary_and_viewer_failure_isolation(video_with_audio: Path) -> N
     assert failed.promise_check.status.value == "aligned"
     assert failed.viewer_pass.status.value == "unavailable"
     assert failed.critical_count == 0
-    assert [finding.code for finding in failed.findings] == ["AI_VIEWER_PASS_UNAVAILABLE"]
+    assert failed.findings == []
+    assert failed.verdict is FindingStatus.READY
+    assert failed.scan_completeness.value == "PARTIAL"
 
 
 def test_viewer_issue_updates_counts_without_blocking(video_with_audio: Path) -> None:
@@ -214,7 +216,8 @@ class SharedFiles:
             state=SimpleNamespace(name="ACTIVE"),
         )
 
-    def upload(self, *, file):
+    def upload(self, *, file, config=None):
+        del config
         self.upload_count += 1
         return self.remote
 
@@ -241,12 +244,15 @@ def test_full_scan_reuses_one_upload_for_promise_and_viewer(video_with_audio: Pa
     assert report.ai_review.cleanup_succeeded is True
 
 
-def test_common_provider_unavailability_is_one_coherent_finding(video_with_audio: Path) -> None:
+def test_common_provider_unavailability_is_one_execution_issue(video_with_audio: Path) -> None:
     adapter = GeminiVideoReviewer(environ={})
     report = PreflightScanner(config=_config(), ai_adapter=adapter).scan(
         video_with_audio, PublishingPackage(title="Aurora", description="Description")
     )
-    assert [finding.code for finding in report.findings] == ["AI_REVIEW_UNAVAILABLE"]
+    assert report.findings == []
+    assert report.verdict is FindingStatus.READY
+    assert report.scan_completeness.value == "PARTIAL"
+    assert len(report.execution_issues) == 1
     assert report.promise_check.status.value == "unavailable"
     assert report.viewer_pass.status.value == "unavailable"
     assert report.critical_count == 0
@@ -274,4 +280,6 @@ def test_shared_session_isolates_promise_failure_from_viewer_success(video_with_
     assert client.files.delete_count == 1
     assert report.promise_check.status.value == "unavailable"
     assert report.viewer_pass.status.value == "clean"
-    assert [finding.code for finding in report.findings] == ["AI_REVIEW_UNAVAILABLE"]
+    assert report.findings == []
+    assert report.scan_completeness.value == "PARTIAL"
+    assert report.execution_issues[0].component == "ai.promise"

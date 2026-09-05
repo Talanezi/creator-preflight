@@ -13,7 +13,7 @@ It combines four review layers:
 
 Publishing rules also validate resolution, aspect ratio, title, description, URLs, chapters, and caption requirements. UTF-8 SRT and WebVTT files are parsed for timing, ordering, range, overlap, gaps, and merged coverage. Optional local Whisper can compare speech intervals with caption coverage.
 
-FFmpeg analysis is deterministic media processing, not AI. Core scanning is local-first and requires no API key. Gemini review is opt-in, probabilistic review evidence: when enabled, the backend sends the video and optional thumbnail to Google once per scan, keeps the API key server-side, and attempts remote cleanup. AI findings are review-only and never block publication by themselves.
+FFmpeg analysis is deterministic media processing, not AI. The browser explicitly offers **Full Review** or **Local Checks Only**. Local Checks requires no API key and never sends media to Gemini. Full Review is opt-in, probabilistic review evidence: the backend sends the video and optional thumbnail to Google once per scan, keeps the API key server-side, and attempts remote cleanup. AI findings are review-only and never block publication by themselves.
 
 ## Quick start
 
@@ -52,6 +52,8 @@ npm run dev -- --host 127.0.0.1
 
 Open `http://127.0.0.1:5173`. Vite proxies the multipart scan request to FastAPI. Backend upload copies are temporary and removed after each request.
 
+The input screen shows the two review modes explicitly. Local Checks Only is available with the core installation. For Full Review, install and configure the optional Gemini dependency as described below; no special YAML profile is required for the browser workflow.
+
 ## Judge demo package
 
 On macOS, generate the paired 60-second creator-style packages:
@@ -72,7 +74,14 @@ Install the isolated dependency:
 .venv/bin/python -m pip install './backend[ai]'
 ```
 
-Set `GEMINI_API_KEY` only in the backend process environment and enable `ai_review.enabled` in a YAML configuration. For the web API, point the backend at that file with `CREATOR_PREFLIGHT_CONFIG`; the CLI accepts `--config`. The tracked judge profile is `demo/judge/ai-config.yml`. Claim Review is independently opt-in.
+Set `GEMINI_API_KEY` only in the backend process environment before starting FastAPI:
+
+```sh
+export GEMINI_API_KEY="your-server-side-key"
+.venv/bin/uvicorn creator_preflight.api:app --app-dir backend/src --reload --host 127.0.0.1 --port 8000
+```
+
+The browser reads non-secret backend capabilities and enables Full Review when FFmpeg, the optional Gemini dependency, and the server-side key are available. Selecting Full Review enables Promise Check, Final Viewer Pass, and Claim Review for that request. Selecting Local Checks Only forcibly disables Gemini upload. Advanced YAML configuration remains available to the CLI with `--config` and to development deployments with `CREATOR_PREFLIGHT_CONFIG`, but it is not required for ordinary browser Full Review.
 
 The verified provider path is `google-genai` 2.22.0 with `gemini-3.7-flash`, Gemini Files API upload, native structured output, Google Search grounding metadata, Pydantic validation, bounded waits, and explicit remote deletion. This verifies that specific model/account path—not every model, device, codec, or video size.
 
@@ -97,6 +106,8 @@ CLI ───────────┘                    ├─ FFmpeg + pack
                                        └─ Claim extraction → one grounded search request
 ```
 
-The API and CLI share the same scanner and validated YAML configuration. Provider-specific lifecycle and grounding code stays behind task-specific Pydantic trust boundaries. A Gemini failure does not erase deterministic results or fabricate an AI pass.
+The API and CLI share the same scanner and validated YAML configuration. Provider-specific lifecycle and grounding code stays behind task-specific Pydantic trust boundaries. Reports separate the creator-content verdict (`READY`, `NEEDS_REVIEW`, or `BLOCKED`) from scan completeness (`COMPLETE`, `PARTIAL`, or `FAILED`), so a provider outage does not become a content warning or fabricate an AI pass.
+
+The local API streams uploads to temporary storage with a 2 GiB default limit, runs synchronous media/provider work outside the async event loop, admits at most two scans by default, and accepts expensive browser requests only from configured local origins. These limits are configurable in `config/preflight.default.yml`.
 
 See [`docs/SPEC.md`](docs/SPEC.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and [`docs/STATUS.md`](docs/STATUS.md) for the exact contract, implementation boundaries, and verified release status.

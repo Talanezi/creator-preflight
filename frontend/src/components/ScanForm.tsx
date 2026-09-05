@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Captions, FileImage, FileVideo2, Play, RefreshCw, Upload, X } from "lucide-react";
 import { formatBytes } from "../utils/format";
+import type { PreflightCapabilities, ReviewMode } from "../types/preflight";
 
 export interface ScanInputs {
   video: File | null;
@@ -8,17 +9,20 @@ export interface ScanInputs {
   description: string;
   captions: File | null;
   thumbnail: File | null;
+  reviewMode: ReviewMode;
 }
 
 interface ScanFormProps {
   inputs: ScanInputs;
+  capabilities: PreflightCapabilities | null;
+  capabilityError: boolean;
   onChange: (inputs: ScanInputs) => void;
   onRun: () => void;
 }
 
 const TITLE_GUIDANCE = 100;
 
-export function ScanForm({ inputs, onChange, onRun }: ScanFormProps) {
+export function ScanForm({ inputs, capabilities, capabilityError, onChange, onRun }: ScanFormProps) {
   const videoInput = useRef<HTMLInputElement>(null);
   const captionInput = useRef<HTMLInputElement>(null);
   const thumbnailInput = useRef<HTMLInputElement>(null);
@@ -38,6 +42,17 @@ export function ScanForm({ inputs, onChange, onRun }: ScanFormProps) {
   const selectVideo = (file?: File) => {
     if (file) onChange({ ...inputs, video: file });
   };
+  const uploadTooLarge = Boolean(
+    inputs.video && capabilities
+    && inputs.video.size > capabilities.maximum_video_upload_size_bytes,
+  );
+  const canRun = Boolean(
+    inputs.video
+    && !uploadTooLarge
+    && (inputs.reviewMode === "local"
+      ? capabilities?.local_checks_available !== false
+      : capabilities?.full_review_available),
+  );
 
   return (
     <main className="new-scan page-frame" data-testid="input-state">
@@ -115,6 +130,30 @@ export function ScanForm({ inputs, onChange, onRun }: ScanFormProps) {
 
         <section className="package-section" aria-labelledby="package-heading">
           <h2 id="package-heading">Publishing details</h2>
+
+          <fieldset className="review-mode-field">
+            <legend>Review mode</legend>
+            <ReviewModeOption
+              value="full"
+              selected={inputs.reviewMode === "full"}
+              disabled={!capabilities?.full_review_available}
+              title="Full Review"
+              description="Technical checks plus Promise, Viewer, and grounded Claim Review. Temporarily sends the video and thumbnail to Gemini."
+              onSelect={() => onChange({ ...inputs, reviewMode: "full" })}
+            />
+            <ReviewModeOption
+              value="local"
+              selected={inputs.reviewMode === "local"}
+              disabled={capabilities !== null && !capabilities.local_checks_available}
+              title="Local Checks Only"
+              description="Technical, publishing-package, and caption checks. No Gemini media upload."
+              onSelect={() => onChange({ ...inputs, reviewMode: "local" })}
+            />
+            {capabilityError && <p className="mode-note">Backend capabilities are unavailable. Local checks can still be attempted.</p>}
+            {capabilities && !capabilities.full_review_available && (
+              <p className="mode-note">Full Review unavailable: {capabilities.full_review_unavailable_reasons.map((reason) => reason.message).join(" ")}</p>
+            )}
+          </fieldset>
 
           <div className="field-group">
             <div className="field-label-row">
@@ -234,12 +273,33 @@ export function ScanForm({ inputs, onChange, onRun }: ScanFormProps) {
           <button
             type="submit"
             className="primary-button run-button"
-            disabled={!inputs.video}
+            disabled={!canRun}
           >
             <Play aria-hidden="true" fill="currentColor" /> Run Preflight
           </button>
+          {uploadTooLarge && capabilities && (
+            <p className="upload-limit-message" role="alert">
+              This video exceeds the {formatBytes(capabilities.maximum_video_upload_size_bytes)} upload limit.
+            </p>
+          )}
         </section>
       </form>
     </main>
+  );
+}
+
+function ReviewModeOption({ value, selected, disabled, title, description, onSelect }: {
+  value: ReviewMode;
+  selected: boolean;
+  disabled: boolean;
+  title: string;
+  description: string;
+  onSelect: () => void;
+}) {
+  return (
+    <label className={`review-mode-option${selected ? " is-selected" : ""}${disabled ? " is-disabled" : ""}`}>
+      <input type="radio" name="review-mode" value={value} checked={selected} disabled={disabled} onChange={onSelect} />
+      <span><strong>{title}</strong><small>{description}</small></span>
+    </label>
   );
 }

@@ -7,7 +7,9 @@ import type {
   ClaimReviewSummary,
   Finding,
   MediaInspection,
+  PreflightCapabilities,
   PreflightReport,
+  ReviewMode,
 } from "../types/preflight";
 
 export interface PreflightScanInput {
@@ -16,6 +18,7 @@ export interface PreflightScanInput {
   description: string;
   captions?: File | null;
   thumbnail?: File | null;
+  reviewMode: ReviewMode;
 }
 
 interface StructuredErrorResponse {
@@ -46,6 +49,7 @@ export async function scanPreflight(
   form.append("file", input.video, input.video.name);
   form.append("title", input.title);
   form.append("description", input.description);
+  form.append("review_mode", input.reviewMode);
   if (input.captions) form.append("captions", input.captions, input.captions.name);
   if (input.thumbnail) form.append("thumbnail", input.thumbnail, input.thumbnail.name);
 
@@ -84,6 +88,29 @@ export async function scanPreflight(
   return payload;
 }
 
+export async function fetchCapabilities(
+  options: { signal?: AbortSignal } = {},
+): Promise<PreflightCapabilities> {
+  let response: Response;
+  try {
+    response = await fetch("/api/v1/capabilities", { signal: options.signal });
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new PreflightApiError("Could not load backend capabilities.", {
+      code: "backend_unreachable",
+      cause: error,
+    });
+  }
+  const payload = await parseJsonResponse(response);
+  if (!response.ok || !isPreflightCapabilities(payload)) {
+    throw new PreflightApiError("The backend capabilities could not be read.", {
+      code: response.ok ? "invalid_response" : "request_failed",
+      status: response.status,
+    });
+  }
+  return payload;
+}
+
 export function errorPresentation(error: unknown): { title: string; message: string; detail?: string } {
   if (error instanceof PreflightApiError) {
     if (error.code === "backend_unreachable") {
@@ -112,6 +139,27 @@ export function errorPresentation(error: unknown): { title: string; message: str
         title: "This thumbnail could not be used",
         message: error.message,
         detail: "Choose a valid PNG or JPEG within the configured size limit.",
+      };
+    }
+    if (error.code === "video_upload_too_large") {
+      return {
+        title: "This video is too large",
+        message: error.message,
+        detail: "Choose a smaller export or adjust the backend's configured upload limit.",
+      };
+    }
+    if (error.code === "scan_capacity_reached") {
+      return {
+        title: "Creator Preflight is busy",
+        message: error.message,
+        detail: "Wait for the active scan to finish, then try again.",
+      };
+    }
+    if (error.code === "request_origin_not_allowed") {
+      return {
+        title: "This browser cannot start a scan",
+        message: error.message,
+        detail: "Open Creator Preflight from an allowed local frontend origin.",
       };
     }
     return {
@@ -164,6 +212,10 @@ function isPreflightReport(value: unknown): value is PreflightReport {
   if (!isRecord(value)) return false;
   return typeof value.schema_version === "string"
     && isFindingStatus(value.verdict)
+    && (value.scan_completeness === "COMPLETE" || value.scan_completeness === "PARTIAL" || value.scan_completeness === "FAILED")
+    && (value.review_mode === "full" || value.review_mode === "local")
+    && Array.isArray(value.execution_issues)
+    && value.execution_issues.every(isExecutionIssue)
     && isMediaInspection(value.media)
     && Array.isArray(value.findings)
     && value.findings.every(isFinding)
@@ -181,6 +233,32 @@ function isPreflightReport(value: unknown): value is PreflightReport {
     && isViewerPassSummary(value.viewer_pass)
     && isClaimReviewSummary(value.claim_review)
     && isNonnegativeNumber(value.scan_duration_seconds);
+}
+
+function isExecutionIssue(value: unknown): boolean {
+  return isRecord(value)
+    && typeof value.component === "string"
+    && typeof value.reason_code === "string"
+    && typeof value.message === "string"
+    && typeof value.retryable === "boolean";
+}
+
+function isPreflightCapabilities(value: unknown): value is PreflightCapabilities {
+  return isRecord(value)
+    && typeof value.ffprobe_available === "boolean"
+    && typeof value.ffmpeg_available === "boolean"
+    && typeof value.gemini_dependency_available === "boolean"
+    && typeof value.gemini_api_key_configured === "boolean"
+    && typeof value.full_review_available === "boolean"
+    && typeof value.local_checks_available === "boolean"
+    && typeof value.transcription_dependency_available === "boolean"
+    && typeof value.transcription_enabled === "boolean"
+    && Array.isArray(value.supported_review_modes)
+    && value.supported_review_modes.every((mode) => mode === "full" || mode === "local")
+    && isNonnegativeNumber(value.maximum_video_upload_size_bytes)
+    && Array.isArray(value.full_review_unavailable_reasons)
+    && value.full_review_unavailable_reasons.every((reason) => isRecord(reason)
+      && typeof reason.code === "string" && typeof reason.message === "string");
 }
 
 function isClaimReviewSummary(value: unknown): value is ClaimReviewSummary {

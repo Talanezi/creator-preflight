@@ -1,5 +1,7 @@
 export type FindingSeverity = "info" | "warning" | "error";
 export type FindingStatus = "READY" | "NEEDS_REVIEW" | "BLOCKED";
+export type ReviewMode = "full" | "local";
+export type ScanCompleteness = "COMPLETE" | "PARTIAL" | "FAILED";
 
 export type JsonValue =
   | string
@@ -68,6 +70,32 @@ export interface AIReviewSummary {
   reason_code: string | null;
 }
 
+export interface ExecutionIssue {
+  component: string;
+  reason_code: string;
+  message: string;
+  retryable: boolean;
+}
+
+export interface CapabilityReason {
+  code: string;
+  message: string;
+}
+
+export interface PreflightCapabilities {
+  ffprobe_available: boolean;
+  ffmpeg_available: boolean;
+  gemini_dependency_available: boolean;
+  gemini_api_key_configured: boolean;
+  full_review_available: boolean;
+  local_checks_available: boolean;
+  transcription_dependency_available: boolean;
+  transcription_enabled: boolean;
+  supported_review_modes: ReviewMode[];
+  maximum_video_upload_size_bytes: number;
+  full_review_unavailable_reasons: CapabilityReason[];
+}
+
 export type PromiseCheckStatus = "disabled" | "aligned" | "needs_review" | "not_evaluable" | "unavailable";
 
 export interface PromiseCheckSummary {
@@ -103,6 +131,9 @@ export interface ClaimReviewSummary {
 export interface PreflightReport {
   schema_version: string;
   verdict: FindingStatus;
+  scan_completeness: ScanCompleteness;
+  review_mode: ReviewMode;
+  execution_issues: ExecutionIssue[];
   media: MediaInspection;
   findings: Finding[];
   checks: CheckResult[];

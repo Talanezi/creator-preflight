@@ -2,9 +2,9 @@
 
 ## Current milestone
 
-Milestone 15 — Final Judge Release.
+Milestone 16 — Trustworthy Full Review.
 
-Status: completed on 2026-09-03. The realistic defective package honestly demonstrates its verified Promise delay and black export gap without fabricating a Claim result; the corrected package completed a full production scan as `READY`. Verified M13 and M14 controlled evidence demonstrates Final Viewer Pass and grounded Claim Review separately. The complete release gate, browser audit, documentation, cleanup, and repository-security checks passed.
+Status: completed on 2026-09-04. The browser now offers explicit Full Review and Local Checks Only modes, preserves validated media identity through the Gemini upload boundary, and reports scan completeness separately from the creator-content verdict. A real browser-selected MP4 completed all three Gemini tasks through one shared upload with no findings or console errors. The owner should still perform the requested ordinary real-world MP4 browser acceptance check before externally accepting the milestone.
 
 ## Completed
 
@@ -101,6 +101,14 @@ Status: completed on 2026-09-03. The realistic defective package honestly demons
 - The final input and result UI uses truthful local-workspace/upload wording and presents Promise Check, Final Viewer Pass, and Claim Review together in one compact desktop summary row while retaining the accepted responsive layout.
 - A concise 90–120 second judge walkthrough and factual Devpost draft document the exact package inputs, evidence moments, architecture, limitations, and corrected ending.
 - The one-command deterministic demo now executes the current checkout's CLI module through the repository virtual environment, preventing a stale installed package copy from rejecting newer configuration fields.
+- Browser scans now expose explicit `full` and `local` review modes. Full Review deliberately enables Promise Check, Final Viewer Pass, and Claim Review for that request without requiring a hidden YAML profile; Local Checks Only forcibly disables Gemini media processing.
+- A non-secret `/api/v1/capabilities` contract reports local tool availability, optional Gemini/transcription capability, supported review modes, and the effective upload limit without exposing credentials or provider identifiers.
+- Preflight report schema 1.5 separates creator-content verdict (`READY`, `NEEDS_REVIEW`, `BLOCKED`) from scan completeness (`COMPLETE`, `PARTIAL`, `FAILED`) and records typed execution issues outside the finding list.
+- Browser-uploaded media retains a safe recognized suffix, and the scanner supplies a validated FFprobe-informed MIME type at the Gemini Files API boundary. Incompatible Gemini media is reported safely without preventing local checks.
+- Provider failures now use safe typed reason codes for missing credentials, authentication/permission, quota, upload, processing, timeout, provider/network availability, invalid response, and incompatible media; failed optional AI tasks cannot manufacture content findings or change the content verdict.
+- Video uploads are bounded to 2 GiB by default during streamed disk writes. PNG/JPEG thumbnail validation now bounds dimensions, total pixels, and PNG decompression output.
+- Synchronous FFmpeg/provider scanning runs behind an AnyIO worker-thread boundary, with a configurable process-local scan limit and structured busy response.
+- Expensive browser scan requests enforce a configurable exact Origin allowlist for the normal localhost/127.0.0.1 Vite workflow while preserving Origin-less CLI/API clients.
 
 ## Not implemented
 
@@ -138,6 +146,7 @@ None known.
 - Analysis uses one non-streaming request, so the processing view is intentionally indeterminate and cannot identify the currently running backend detector.
 - No demo video is bundled. Click-to-seek depends on the browser being able to preview the selected media codec/container; report timestamps still render when preview playback is unavailable.
 - Timeline filtering is category-based only. Severity filtering and richer overlap lanes are intentionally deferred.
+- Provider-generated task summaries can mention cautious sub-threshold evidence even when the validated issue list is empty; the finding/confidence trust boundary, not summary prose, controls the content verdict.
 
 ## Known demo limitations
 
@@ -295,3 +304,11 @@ None known.
 - M15 final corrected production scan — `READY`, 23 checks run, 23 passed, 0 warnings, 0 critical. Deterministic checks and captions passed. Promise Check was `aligned` at 0.72 confidence with substantive delivery at 0.0s and aligned thumbnail. Final Viewer Pass was `clean` with zero issues. Claim Review extracted Eiffel Tower/1889 at 0.0s and Apollo 11/1969 at 12.0s, grounded both as supported at 0.99 confidence, and conservatively reported two `insufficient_evidence` outcomes because this response contained no citation metadata; it produced no conflict or finding.
 - The final corrected scan used exactly one shared Files API upload, four generation calls (Promise, Viewer, Claim extraction, one batched grounded verification), and one successful remote cleanup. Upload took approximately 5.575s, provider processing 3.375s, Promise 4.518s, Viewer 5.260s, extraction 3.355s, grounding 2.329s, and reported total AI runtime was approximately 24.414s.
 - M15 demo closure — the realistic defective package is documented only with its accepted `AI_PROMISE_DELAY` 0–24s and `VIDEO_BLACK_SEGMENT` 12.0–15.066667s. M13 remains the verified controlled proof for narration/visual conflict, placeholder, and accidental repetition; M14 remains the verified controlled proof for Apollo 11/1968 grounded conflict, real provider citations, and timestamped review finding. No result is attributed to a fixture that did not produce it.
+- Milestone 16 root-cause audit — installed `google-genai` 2.22.0 infers upload MIME type from the local path when no upload configuration is supplied. The API renamed every browser video to `upload.media`, so SDK MIME inference failed locally before any provider request and the prior adapter collapsed that exception into `ai_upload_failed`. The scanner now passes an explicit validated media MIME type and the request-temporary path preserves a recognized suffix.
+- Milestone 16 targeted backend validation — 113 relevant API/config/report/provider/thumbnail tests passed, 0 failed, with 1 upstream Starlette `TestClient` deprecation warning. The route regression exercises multipart storage, real scanner orchestration, and a fake only at the external Gemini boundary, confirming `.mp4` plus `video/mp4` reach one shared upload session.
+- Milestone 16 final backend gate — `.venv/bin/python -m pytest backend/tests`: 185 passed, 0 failed, with 1 upstream Starlette `TestClient` deprecation warning; `.venv/bin/python -m compileall -q backend/src scripts` passed.
+- Milestone 16 final frontend gate — `cd frontend && npm test -- --run`: 2 files and 36 tests passed, 0 failed. `npm run build` passed TypeScript compilation and Vite 8.2.2 production bundling with 1,825 modules transformed.
+- Milestone 16 live browser acceptance — the normal Vite application reported Full Review available, submitted the browser-selected 60-second/approximately 8.46 MB corrected judge MP4 with title, description, SRT, and PNG thumbnail, and completed `READY` / `COMPLETE` with 23 passed, 0 warnings, and 0 critical findings. Promise Check was aligned with substantive delivery at 0 seconds and an aligned thumbnail; Final Viewer Pass produced zero accepted high-confidence issues; Claim Review checked two claims and conservatively returned insufficient evidence without a false conflict. All three task summaries completed, no scan-incomplete state appeared, and the browser console contained no warnings or errors.
+- The live Milestone 16 Full Review used one shared Files API video upload, four generation calls (Promise, Viewer, Claim extraction, one batched grounding request), and one explicit cleanup. No retry was used. The same provider lifecycle remains covered by focused upload-count and cleanup tests.
+- Milestone 16 unavailable regression — a missing-key Full Review preserves completed deterministic results, creates no fake AI observations or content warning, retains the creator-content verdict, reports `PARTIAL` completeness with typed `ai_api_key_missing` execution state, and never produces `BLOCKED`. Local Checks Only makes no Gemini provider call.
+- Milestone 16 `git diff --check` passed after production changes. `.env.local` and generated judge media remained ignored and untracked; no credential value, remote provider file identifier, or generated large binary was added to the diff.

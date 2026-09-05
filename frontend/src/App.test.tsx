@@ -19,6 +19,7 @@ class TestURL extends NativeURL {
 
 beforeEach(() => {
   vi.stubGlobal("URL", TestURL);
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(capabilitiesFixture())));
 });
 
 afterEach(() => {
@@ -32,6 +33,24 @@ describe("Creator Preflight frontend", () => {
     expect(screen.getByRole("button", { name: /run preflight/i })).toBeDisabled();
     expect(screen.getByText(/timing, structure, and coverage checks/i)).toBeInTheDocument();
     expect(screen.queryByText(/caption contents are not inspected/i)).not.toBeInTheDocument();
+  });
+
+  it("offers explicit Full Review and Local Checks modes from backend capabilities", async () => {
+    render(<App />);
+    const full = await screen.findByRole("radio", { name: /Full Review/i });
+    const local = screen.getByRole("radio", { name: /Local Checks Only/i });
+    expect(full).toBeChecked();
+    expect(local).not.toBeChecked();
+    expect(screen.getByText(/Temporarily sends the video and thumbnail to Gemini/i)).toBeInTheDocument();
+    expect(screen.getByText(/No Gemini media upload/i)).toBeInTheDocument();
+  });
+
+  it("disables Full Review when backend capabilities say it is unavailable", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(capabilitiesFixture(false))));
+    render(<App />);
+    expect(await screen.findByRole("radio", { name: /Full Review/i })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: /Local Checks Only/i })).toBeChecked();
+    expect(screen.getByText(/Full Review unavailable/i)).toBeInTheDocument();
   });
 
   it("clears native file inputs when selections are removed", async () => {
@@ -62,6 +81,35 @@ describe("Creator Preflight frontend", () => {
     expect(screen.getByText("Sustained near-black section")).toBeInTheDocument();
     expect(screen.getByText("Long silent section")).toBeInTheDocument();
     expect(screen.getByLabelText("Scan counts")).toHaveTextContent("9 passed·5 warnings·0 critical");
+  });
+
+  it("separates a partial scan from the content verdict", () => {
+    render(<ResultsView report={{
+      ...readyReport,
+      review_mode: "full",
+      scan_completeness: "PARTIAL",
+      execution_issues: [{
+        component: "ai.provider",
+        reason_code: "ai_provider_quota_exhausted",
+        message: "Gemini quota was reached.",
+        retryable: true,
+      }],
+      ai_review: { ...readyReport.ai_review, enabled: true, status: "unavailable", reason_code: "ai_provider_quota_exhausted" },
+      promise_check: { ...readyReport.promise_check, status: "unavailable", explanation: "Gemini quota was reached." },
+      viewer_pass: { ...readyReport.viewer_pass, status: "unavailable", summary: "Gemini quota was reached." },
+      claim_review: { ...readyReport.claim_review, status: "unavailable", explanation: "Gemini quota was reached." },
+    }} />);
+    expect(screen.getByRole("heading", { name: "Ready" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Scan incomplete" })).toBeInTheDocument();
+    expect(screen.getByText(/Completed content checks found no release issue/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Gemini quota was reached/i).length).toBeGreaterThan(0);
+  });
+
+  it("does not present remote review cards for Local Checks Only", () => {
+    render(<ResultsView report={readyReport} />);
+    expect(screen.queryByRole("heading", { name: "Promise Check" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Final Viewer Pass" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Claim Review" })).not.toBeInTheDocument();
   });
 
   it("filters the visible findings by real report category", async () => {
@@ -179,6 +227,7 @@ describe("Creator Preflight frontend", () => {
   it("renders aligned Promise Check evidence without inventing a finding", () => {
     const report: PreflightReport = {
       ...readyReport,
+      review_mode: "full",
       promise_check: {
         status: "aligned",
         inferred_promise: "Explain why blue light can disrupt sleep.",
@@ -212,6 +261,7 @@ describe("Creator Preflight frontend", () => {
     };
     const report: PreflightReport = {
       ...needsReviewReport,
+      review_mode: "full",
       findings: [finding],
       warning_count: 1,
       promise_check: {
@@ -235,6 +285,7 @@ describe("Creator Preflight frontend", () => {
   it("renders a clean Final Viewer Pass summary without inventing a finding", () => {
     const report: PreflightReport = {
       ...readyReport,
+      review_mode: "full",
       viewer_pass: {
         status: "clean",
         summary: "No high-confidence internal inconsistencies were found.",
@@ -266,6 +317,7 @@ describe("Creator Preflight frontend", () => {
     };
     const report: PreflightReport = {
       ...needsReviewReport,
+      review_mode: "full",
       findings: [finding],
       warning_count: 1,
       viewer_pass: {
@@ -285,6 +337,7 @@ describe("Creator Preflight frontend", () => {
     const user = userEvent.setup();
     const report: PreflightReport = {
       ...needsReviewReport,
+      review_mode: "full",
       findings: [{
         code: "AI_CLAIM_POSSIBLE_CONFLICT",
         severity: "warning",
@@ -328,7 +381,7 @@ describe("Creator Preflight frontend", () => {
     [needsReviewReport, "Needs review"],
     [blockedReport, "Blocked"],
   ] as const)("renders a successful backend %s report as %s", async (report, heading) => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(report)));
+    vi.stubGlobal("fetch", appFetch([() => Promise.resolve(jsonResponse(report))]));
     const user = userEvent.setup();
     render(<App />);
 
@@ -339,9 +392,10 @@ describe("Creator Preflight frontend", () => {
   });
 
   it("renders a backend/network failure through the application error state", async () => {
-    vi.stubGlobal("fetch", vi.fn()
-      .mockRejectedValueOnce(new TypeError("network failed"))
-      .mockResolvedValueOnce(jsonResponse(readyReport)));
+    vi.stubGlobal("fetch", appFetch([
+      () => Promise.reject(new TypeError("network failed")),
+      () => Promise.resolve(jsonResponse(readyReport)),
+    ]));
     const user = userEvent.setup();
     render(<App />);
 
@@ -358,8 +412,11 @@ describe("Creator Preflight frontend", () => {
   it("aborts an obsolete request and ignores it even if it later resolves", async () => {
     let requestSignal: AbortSignal | undefined;
     let resolveObsolete: ((response: Response) => void) | undefined;
-    const fetchMock = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
-      if (fetchMock.mock.calls.length === 1) {
+    let scanCall = 0;
+    const fetchMock = vi.fn((url: RequestInfo | URL, init?: RequestInit) => {
+      if (String(url).endsWith("/capabilities")) return Promise.resolve(jsonResponse(capabilitiesFixture()));
+      scanCall += 1;
+      if (scanCall === 1) {
         requestSignal = init?.signal ?? undefined;
         return new Promise<Response>((resolve) => { resolveObsolete = resolve; });
       }
@@ -383,9 +440,10 @@ describe("Creator Preflight frontend", () => {
   });
 
   it("replaces the first scan cleanly with a second real response", async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse(readyReport))
-      .mockResolvedValueOnce(jsonResponse(blockedReport));
+    const fetchMock = appFetch([
+      () => Promise.resolve(jsonResponse(readyReport)),
+      () => Promise.resolve(jsonResponse(blockedReport)),
+    ]);
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     render(<App />);
@@ -404,7 +462,11 @@ describe("Creator Preflight frontend", () => {
   });
 
   it("keeps a pending real request in an honest indeterminate state", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)));
+    vi.stubGlobal("fetch", vi.fn((url: RequestInfo | URL) => (
+      String(url).endsWith("/capabilities")
+        ? Promise.resolve(jsonResponse(capabilitiesFixture()))
+        : new Promise<Response>(() => undefined)
+    )));
     const user = userEvent.setup();
     render(<App />);
 
@@ -458,6 +520,38 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json" },
+  });
+}
+
+function capabilitiesFixture(fullReviewAvailable = true) {
+  return {
+    ffprobe_available: true,
+    ffmpeg_available: true,
+    gemini_dependency_available: fullReviewAvailable,
+    gemini_api_key_configured: fullReviewAvailable,
+    full_review_available: fullReviewAvailable,
+    local_checks_available: true,
+    transcription_dependency_available: true,
+    transcription_enabled: false,
+    supported_review_modes: ["full", "local"],
+    maximum_video_upload_size_bytes: 2_147_483_648,
+    full_review_unavailable_reasons: fullReviewAvailable ? [] : [{
+      code: "gemini_api_key_missing",
+      message: "The backend does not have a Gemini API key configured.",
+    }],
+  };
+}
+
+function appFetch(
+  scanResponses: Array<() => Promise<Response>>,
+): ReturnType<typeof vi.fn> {
+  let scanIndex = 0;
+  return vi.fn((url: RequestInfo | URL) => {
+    if (String(url).endsWith("/capabilities")) {
+      return Promise.resolve(jsonResponse(capabilitiesFixture()));
+    }
+    const response = scanResponses[scanIndex++];
+    return response ? response() : Promise.reject(new Error("Unexpected scan request"));
   });
 }
 

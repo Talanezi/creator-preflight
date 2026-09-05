@@ -25,7 +25,15 @@ class ThumbnailValidationError(Exception):
         self.message = message
 
 
-def inspect_thumbnail(path: str | Path, *, maximum_bytes: int) -> ThumbnailInfo:
+def inspect_thumbnail(
+    path: str | Path,
+    *,
+    maximum_bytes: int,
+    maximum_width: int = 8192,
+    maximum_height: int = 8192,
+    maximum_pixels: int = 16_777_216,
+    maximum_decompressed_bytes: int = 64_000_000,
+) -> ThumbnailInfo:
     thumbnail_path = Path(path)
     if not thumbnail_path.is_file():
         raise ThumbnailValidationError(
@@ -42,7 +50,11 @@ def inspect_thumbnail(path: str | Path, *, maximum_bytes: int) -> ThumbnailInfo:
             f"Thumbnail exceeds the configured {maximum_bytes}-byte size limit.",
         )
     data = thumbnail_path.read_bytes()
-    dimensions = _png_dimensions(data)
+    dimensions = _png_dimensions(
+        data,
+        maximum_pixels=maximum_pixels,
+        maximum_decompressed_bytes=maximum_decompressed_bytes,
+    )
     mime_type = "image/png"
     if dimensions is None:
         dimensions = _jpeg_dimensions(data)
@@ -53,12 +65,23 @@ def inspect_thumbnail(path: str | Path, *, maximum_bytes: int) -> ThumbnailInfo:
             "Thumbnail must be a readable PNG or JPEG image.",
         )
     width, height = dimensions
+    if (
+        width > maximum_width
+        or height > maximum_height
+        or width * height > maximum_pixels
+    ):
+        raise ThumbnailValidationError(
+            "thumbnail_dimensions_too_large",
+            "Thumbnail dimensions exceed the configured safe limit.",
+        )
     return ThumbnailInfo(
         mime_type=mime_type, file_size_bytes=size, width=width, height=height
     )
 
 
-def _png_dimensions(data: bytes) -> tuple[int, int] | None:
+def _png_dimensions(
+    data: bytes, *, maximum_pixels: int, maximum_decompressed_bytes: int
+) -> tuple[int, int] | None:
     if len(data) < 33 or data[:8] != b"\x89PNG\r\n\x1a\n":
         return None
     offset = 8
@@ -81,6 +104,11 @@ def _png_dimensions(data: bytes) -> tuple[int, int] | None:
             width, height = struct.unpack(">II", payload[:8])
             if width <= 0 or height <= 0:
                 return None
+            if width * height > maximum_pixels:
+                raise ThumbnailValidationError(
+                    "thumbnail_dimensions_too_large",
+                    "Thumbnail dimensions exceed the configured safe limit.",
+                )
             dimensions = (width, height)
         elif kind == b"IDAT":
             compressed.extend(payload)
@@ -90,8 +118,23 @@ def _png_dimensions(data: bytes) -> tuple[int, int] | None:
         offset = end
     if dimensions is None or not compressed or not saw_end:
         return None
+    width, height = dimensions
+    # PNG scanlines require at most eight bytes per pixel plus filter bytes.
+    # Bound decompression independently of the compressed upload size so a
+    # tiny IDAT stream cannot expand without a ceiling.
+    maximum_output = min(
+        width * height * 8 + height * 7 + 1024,
+        maximum_decompressed_bytes,
+    )
     try:
-        if not zlib.decompress(bytes(compressed)):
+        decompressor = zlib.decompressobj()
+        decoded = decompressor.decompress(bytes(compressed), maximum_output + 1)
+        if (
+            not decoded
+            or len(decoded) > maximum_output
+            or decompressor.unconsumed_tail
+            or not decompressor.eof
+        ):
             return None
     except zlib.error:
         return None

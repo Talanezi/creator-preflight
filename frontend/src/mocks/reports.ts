@@ -132,8 +132,11 @@ const findings: Finding[] = [
 ];
 
 export const needsReviewReport: PreflightReport = {
-  schema_version: "1.4",
+  schema_version: "1.5",
   verdict: "NEEDS_REVIEW",
+  scan_completeness: "COMPLETE",
+  review_mode: "local",
+  execution_issues: [],
   media: { ...media },
   findings,
   checks: checks({

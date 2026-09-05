@@ -88,6 +88,10 @@ ai_review:
     delay_warning_seconds: 20.0
     minimum_issue_confidence: 0.70
     maximum_thumbnail_file_size_bytes: 5000000
+    maximum_thumbnail_width: 8192
+    maximum_thumbnail_height: 8192
+    maximum_thumbnail_pixels: 16777216
+    maximum_thumbnail_decompressed_bytes: 64000000
   # Final Viewer Pass reports only concrete internal inconsistencies with
   # specific evidence at or above this conservative confidence threshold.
   viewer_pass:
@@ -101,3 +105,12 @@ ai_review:
     maximum_claims: 3
     minimum_extraction_confidence: 0.75
     minimum_conflict_confidence: 0.75
+
+# Local web/API safety limits. Browser origins are exact allowlist entries;
+# non-browser clients that send no Origin header remain supported.
+api:
+  maximum_video_upload_size_bytes: 2147483648
+  maximum_concurrent_scans: 2
+  allowed_browser_origins:
+    - http://localhost:5173
+    - http://127.0.0.1:5173

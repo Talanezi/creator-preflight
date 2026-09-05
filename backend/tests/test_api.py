@@ -1,6 +1,8 @@
 from pathlib import Path
+import json
 import struct
 import zlib
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,6 +11,8 @@ from tempfile import TemporaryDirectory as RealTemporaryDirectory
 from creator_preflight.api import app
 from creator_preflight import api as api_module
 from creator_preflight.detectors import DetectorExecutionError
+from creator_preflight.config import PreflightConfig
+from creator_preflight.ai_review import GeminiVideoReviewer
 
 client = TestClient(app)
 
@@ -78,7 +82,9 @@ def test_unified_api_scan_returns_preflight_report(video_with_audio: Path) -> No
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["schema_version"] == "1.4"
+    assert payload["schema_version"] == "1.5"
+    assert payload["review_mode"] == "local"
+    assert payload["scan_completeness"] == "COMPLETE"
     assert payload["ai_review"]["status"] == "disabled"
     assert payload["verdict"] == "BLOCKED"
     assert payload["media"]["width"] == 160
@@ -101,7 +107,7 @@ def test_unified_api_anomaly_report_matches_real_frontend_contract(
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["schema_version"] == "1.4"
+    assert payload["schema_version"] == "1.5"
     assert payload["ai_review"]["status"] == "disabled"
     assert payload["verdict"] == "NEEDS_REVIEW"
     assert payload["media"]["width"] == 1280
@@ -125,6 +131,211 @@ def test_unified_api_anomaly_report_matches_real_frontend_contract(
     assert findings["AUDIO_LONG_SILENCE"]["timestamp_end_seconds"] == pytest.approx(6.0, abs=0.2)
     assert findings["VIDEO_FREEZE_SEGMENT"]["timestamp_start_seconds"] == pytest.approx(7.0, abs=0.2)
     assert findings["VIDEO_FREEZE_SEGMENT"]["timestamp_end_seconds"] == pytest.approx(10.0, abs=0.2)
+
+
+def test_capabilities_are_non_secret_and_report_full_review_availability(monkeypatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "test-only-key")
+    response = client.get("/api/v1/capabilities")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ffmpeg_available"] is True
+    assert payload["ffprobe_available"] is True
+    assert payload["gemini_dependency_available"] is True
+    assert payload["gemini_api_key_configured"] is True
+    assert payload["full_review_available"] is True
+    assert payload["supported_review_modes"] == ["full", "local"]
+    assert payload["maximum_video_upload_size_bytes"] == 2_147_483_648
+    assert "GEMINI_API_KEY" not in response.text
+    assert "test-only-key" not in response.text
+
+
+def test_browser_origin_is_required_to_match_allowlist(video_with_audio: Path) -> None:
+    with video_with_audio.open("rb") as media_file:
+        response = client.post(
+            "/api/v1/preflight/scan",
+            headers={"Origin": "https://malicious.example"},
+            files={"file": ("video.mp4", media_file, "video/mp4")},
+            data={"review_mode": "local"},
+        )
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "request_origin_not_allowed"
+
+
+def test_streaming_video_upload_limit_is_enforced(monkeypatch) -> None:
+    config = PreflightConfig()
+    config.api.maximum_video_upload_size_bytes = 3
+    monkeypatch.setattr(api_module, "_api_config", lambda: (config, "test"))
+    response = client.post(
+        "/api/v1/preflight/scan",
+        files={"file": ("video.mp4", b"four", "video/mp4")},
+        data={"review_mode": "local"},
+    )
+    assert response.status_code == 413
+    assert response.json()["error"] == {
+        "code": "video_upload_too_large",
+        "message": "Video exceeds the configured 3-byte upload limit.",
+        "details": {"maximum_bytes": 3},
+    }
+
+
+def test_process_local_scan_capacity_returns_structured_busy(video_with_audio: Path, monkeypatch) -> None:
+    config = PreflightConfig()
+    config.api.maximum_concurrent_scans = 1
+    monkeypatch.setattr(api_module, "_api_config", lambda: (config, "test"))
+    assert api_module._scan_capacity.acquire(1) is True
+    try:
+        with video_with_audio.open("rb") as media_file:
+            response = client.post(
+                "/api/v1/preflight/scan",
+                files={"file": ("video.mp4", media_file, "video/mp4")},
+                data={"review_mode": "local"},
+            )
+    finally:
+        api_module._scan_capacity.release()
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "scan_capacity_reached"
+
+
+def test_browser_mp4_full_review_preserves_provider_media_identity(
+    video_with_audio: Path, monkeypatch
+) -> None:
+    config = PreflightConfig()
+    config.rules.video.minimum_width = 160
+    config.rules.video.minimum_height = 90
+    config.rules.video.allowed_aspect_ratios = ["16:9"]
+    monkeypatch.setattr(api_module, "_api_config", lambda: (config, "typed defaults"))
+    monkeypatch.setenv("GEMINI_API_KEY", "test-only-key")
+
+    class FakeFiles:
+        upload_count = 0
+        delete_count = 0
+
+        def upload(self, *, file, config):
+            path = Path(file)
+            assert path.is_file()
+            assert path.suffix == ".mp4"
+            assert config["mime_type"] == "video/mp4"
+            assert config["display_name"] == "upload.mp4"
+            self.upload_count += 1
+            return SimpleNamespace(
+                name="files/test", uri="https://provider.invalid/test",
+                mime_type="video/mp4", state=SimpleNamespace(name="ACTIVE"),
+            )
+
+        def get(self, *, name):
+            raise AssertionError(f"active upload should not be polled: {name}")
+
+        def delete(self, *, name):
+            assert name == "files/test"
+            self.delete_count += 1
+
+    class FakeModels:
+        calls = 0
+
+        def generate_content(self, **kwargs):
+            self.calls += 1
+            schema = kwargs["config"]["response_json_schema"]["title"]
+            payloads = {
+                "PromiseReviewResult": {
+                    "inferred_promise": "Explain the test subject.",
+                    "first_substantive_address_seconds": 0.0,
+                    "first_substantive_address_evidence": "The explanation begins.",
+                    "overall_delivery": "aligned",
+                    "overall_delivery_explanation": "The video delivers the title.",
+                    "confidence": 0.95,
+                    "thumbnail_alignment": None,
+                    "thumbnail_alignment_explanation": None,
+                    "issues": [],
+                },
+                "ViewerPassResult": {
+                    "overall_status": "clean", "summary": "No issues.", "issues": [],
+                },
+                "ClaimExtractionResult": {"claims": []},
+            }
+            return SimpleNamespace(text=json.dumps(payloads[schema]), candidates=[])
+
+    fake_client = SimpleNamespace(files=FakeFiles(), models=FakeModels(), close=lambda: None)
+    monkeypatch.setattr(
+        GeminiVideoReviewer,
+        "_create_client",
+        lambda self, api_key, timeout_seconds: fake_client,
+    )
+    with video_with_audio.open("rb") as media_file:
+        response = client.post(
+            "/api/v1/preflight/scan",
+            headers={"Origin": "http://127.0.0.1:5173"},
+            files={"file": ("browser selected video.mp4", media_file, "video/mp4")},
+            data={"title": "Test title", "description": "Test description", "review_mode": "full"},
+        )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["review_mode"] == "full"
+    assert payload["scan_completeness"] == "COMPLETE"
+    assert payload["promise_check"]["status"] == "aligned"
+    assert payload["viewer_pass"]["status"] == "clean"
+    assert payload["claim_review"]["status"] == "no_claims"
+    assert fake_client.files.upload_count == 1
+    assert fake_client.models.calls == 3
+    assert fake_client.files.delete_count == 1
+
+
+def test_local_review_mode_forcibly_disables_gemini(video_with_audio: Path, monkeypatch) -> None:
+    config = PreflightConfig()
+    config.rules.video.minimum_width = 160
+    config.rules.video.minimum_height = 90
+    config.rules.video.allowed_aspect_ratios = ["16:9"]
+    config.ai_review.enabled = True
+    config.ai_review.claim_review.enabled = True
+    monkeypatch.setattr(api_module, "_api_config", lambda: (config, "ai-enabled base"))
+    real_run_sync = api_module.anyio.to_thread.run_sync
+    thread_calls = []
+
+    async def recording_run_sync(function, *args, **kwargs):
+        thread_calls.append(function)
+        return await real_run_sync(function, *args, **kwargs)
+
+    monkeypatch.setattr(api_module.anyio.to_thread, "run_sync", recording_run_sync)
+    monkeypatch.setattr(
+        GeminiVideoReviewer,
+        "_create_client",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Gemini must not run")),
+    )
+    with video_with_audio.open("rb") as media_file:
+        response = client.post(
+            "/api/v1/preflight/scan",
+            files={"file": ("video.mp4", media_file, "video/mp4")},
+            data={"title": "Title", "description": "Description", "review_mode": "local"},
+        )
+    assert response.status_code == 200
+    assert response.json()["review_mode"] == "local"
+    assert response.json()["ai_review"]["status"] == "disabled"
+    assert len(thread_calls) == 1
+
+
+def test_full_review_provider_failure_is_partial_but_content_ready(
+    video_with_audio: Path, monkeypatch
+) -> None:
+    config = PreflightConfig()
+    config.rules.video.minimum_width = 160
+    config.rules.video.minimum_height = 90
+    config.rules.video.allowed_aspect_ratios = ["16:9"]
+    monkeypatch.setattr(api_module, "_api_config", lambda: (config, "typed defaults"))
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    with video_with_audio.open("rb") as media_file:
+        response = client.post(
+            "/api/v1/preflight/scan",
+            files={"file": ("video.mp4", media_file, "video/mp4")},
+            data={"title": "Title", "description": "Description", "review_mode": "full"},
+        )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["verdict"] == "READY"
+    assert payload["scan_completeness"] == "PARTIAL"
+    assert payload["warning_count"] == 0
+    assert payload["findings"] == []
+    assert payload["execution_issues"][0]["reason_code"] == "ai_api_key_missing"
 
 
 def test_real_caption_upload_reaches_parser(video_with_audio: Path) -> None:

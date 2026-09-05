@@ -235,10 +235,12 @@ def test_scanner_aligned_summary_check_and_failure_fallback(video_with_audio: Pa
     failed = PreflightScanner(config=config, promise_reviewer=unavailable).scan(
         video_with_audio, PublishingPackage(title="Title", description="Description")
     )
-    assert failed.verdict is FindingStatus.NEEDS_REVIEW
+    assert failed.verdict is FindingStatus.READY
     assert failed.critical_count == 0
     assert failed.promise_check.status.value == "unavailable"
-    assert [finding.code for finding in failed.findings] == ["AI_REVIEW_UNAVAILABLE"]
+    assert failed.findings == []
+    assert failed.scan_completeness.value == "PARTIAL"
+    assert failed.execution_issues[0].component == "ai.promise"
 
 
 def test_scanner_promise_warning_counts_are_internally_consistent(
@@ -313,6 +315,20 @@ def test_png_and_jpeg_content_validation_and_size_limit(tmp_path: Path) -> None:
     assert too_large.value.code == "thumbnail_too_large"
 
 
+def test_thumbnail_dimensions_and_png_decompression_are_bounded(tmp_path: Path) -> None:
+    absurd = tmp_path / "absurd.png"
+    absurd.write_bytes(_png_with_payload(100_000, 100_000, b"\x00"))
+    with pytest.raises(ThumbnailValidationError) as dimensions:
+        inspect_thumbnail(absurd, maximum_bytes=10_000, maximum_pixels=40_000_000)
+    assert dimensions.value.code == "thumbnail_dimensions_too_large"
+
+    expansion = tmp_path / "expansion.png"
+    expansion.write_bytes(_png_with_payload(1, 1, b"\x00" * 1_000_000))
+    with pytest.raises(ThumbnailValidationError) as decompression:
+        inspect_thumbnail(expansion, maximum_bytes=10_000)
+    assert decompression.value.code == "thumbnail_invalid"
+
+
 def test_controlled_promise_fixture_is_small_semantic_media(tmp_path: Path) -> None:
     video, thumbnail = generate_promise_fixture(
         tmp_path / "promise.mp4", tmp_path / "promise.png"
@@ -331,3 +347,14 @@ def _tiny_png() -> bytes:
         return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
     rows = b"\x00\x00\x66\xcc" * 2
     return signature + chunk(b"IHDR", struct.pack(">IIBBBBB", 2, 2, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+
+
+def _png_with_payload(width: int, height: int, payload: bytes) -> bytes:
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(payload))
+        + chunk(b"IEND", b"")
+    )

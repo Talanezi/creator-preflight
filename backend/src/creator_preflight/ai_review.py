@@ -96,11 +96,19 @@ class VideoReviewer(Protocol):
 class AIReviewError(Exception):
     """Safe application-level failure from the optional provider boundary."""
 
-    def __init__(self, code: str, message: str, *, unavailable: bool = False):
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        unavailable: bool = False,
+        retryable: bool = False,
+    ):
         super().__init__(message)
         self.code = code
         self.message = message
         self.unavailable = unavailable
+        self.retryable = retryable
 
 
 ClientFactory = Callable[[str, int], object]
@@ -142,10 +150,18 @@ class GroundedStructuredAIReviewResult(Generic[StructuredModel]):
 class GeminiReviewSession:
     """One bounded Gemini upload reused by task-specific structured reviews."""
 
-    def __init__(self, adapter: "GeminiVideoReviewer", media_path: str | Path, config: AIReviewConfig):
+    def __init__(
+        self,
+        adapter: "GeminiVideoReviewer",
+        media_path: str | Path,
+        config: AIReviewConfig,
+        *,
+        media_mime_type: str | None = None,
+    ):
         self.adapter = adapter
         self.media_path = Path(media_path)
         self.config = config
+        self.media_mime_type = media_mime_type
         self.client = None
         self.remote_file = None
         self.upload_seconds = 0.0
@@ -166,7 +182,18 @@ class GeminiReviewSession:
         self.started_at = self.adapter._clock()
         try:
             upload_started = self.adapter._clock()
-            self.remote_file = self.client.files.upload(file=str(self.media_path))
+            if self.media_mime_type not in SUPPORTED_GEMINI_VIDEO_MIME_TYPES:
+                raise AIReviewError(
+                    "ai_media_unsupported",
+                    "This video container is readable locally but is not supported for Full Review.",
+                )
+            self.remote_file = self.client.files.upload(
+                file=str(self.media_path),
+                config={
+                    "mime_type": self.media_mime_type,
+                    "display_name": self.media_path.name,
+                },
+            )
             self.upload_seconds = self.adapter._clock() - upload_started
             processing_started = self.adapter._clock()
             self.remote_file = self.adapter._wait_until_active(
@@ -183,9 +210,7 @@ class GeminiReviewSession:
             raise
         except Exception as exc:
             self.close()
-            if _looks_like_timeout(exc):
-                raise AIReviewError("ai_provider_timeout", "Gemini upload timed out.") from exc
-            raise AIReviewError("ai_upload_failed", "Gemini upload could not be completed.") from exc
+            raise _classify_provider_error(exc, phase="upload") from exc
         return self
 
     def generate_structured(
@@ -247,15 +272,7 @@ class GeminiReviewSession:
         except AIReviewError:
             raise
         except Exception as exc:
-            if _looks_like_timeout(exc):
-                raise AIReviewError("ai_provider_timeout", "Gemini generation timed out.") from exc
-            if _looks_like_quota_error(exc):
-                raise AIReviewError(
-                    "ai_provider_quota_exhausted",
-                    "Gemini review is temporarily unavailable because the provider quota was reached.",
-                    unavailable=True,
-                ) from exc
-            raise AIReviewError("ai_generation_failed", "Gemini generation could not be completed.") from exc
+            raise _classify_provider_error(exc, phase="generation") from exc
 
     def generate_grounded_structured(
         self,
@@ -300,17 +317,7 @@ class GeminiReviewSession:
         except AIReviewError:
             raise
         except Exception as exc:
-            if _looks_like_timeout(exc):
-                raise AIReviewError("ai_provider_timeout", "Gemini grounded verification timed out.") from exc
-            if _looks_like_quota_error(exc):
-                raise AIReviewError(
-                    "ai_provider_quota_exhausted",
-                    "Gemini review is temporarily unavailable because the provider quota was reached.",
-                    unavailable=True,
-                ) from exc
-            raise AIReviewError(
-                "ai_grounding_failed", "Gemini grounded verification could not be completed."
-            ) from exc
+            raise _classify_provider_error(exc, phase="grounding") from exc
 
     def close(self) -> None:
         if self.client is None:
@@ -401,9 +408,18 @@ class GeminiVideoReviewer:
         return replace(result, cleanup_succeeded=session.cleanup_succeeded)
 
     def open_session(
-        self, media_path: str | Path, config: AIReviewConfig
+        self,
+        media_path: str | Path,
+        config: AIReviewConfig,
+        *,
+        media_mime_type: str | None = None,
     ) -> GeminiReviewSession:
-        return GeminiReviewSession(self, media_path, config)
+        return GeminiReviewSession(
+            self,
+            media_path,
+            config,
+            media_mime_type=media_mime_type or _video_mime_from_suffix(media_path),
+        )
 
     def _create_client(self, api_key: str, timeout_seconds: float):
         factory = self._client_factory
@@ -516,6 +532,114 @@ def _looks_like_timeout(exc: Exception) -> bool:
 def _looks_like_quota_error(exc: Exception) -> bool:
     message = str(exc).upper()
     return "429" in message or "RESOURCE_EXHAUSTED" in message or "RATE LIMIT" in message
+
+
+SUPPORTED_GEMINI_VIDEO_MIME_TYPES = frozenset(
+    {"video/mp4", "video/quicktime", "video/webm"}
+)
+
+
+def provider_video_mime_type(format_name: str | None, media_path: str | Path) -> str | None:
+    """Map FFprobe-confirmed containers to a bounded Gemini upload MIME type."""
+
+    formats = {part.strip().lower() for part in (format_name or "").split(",")}
+    suffix = Path(media_path).suffix.lower()
+    if suffix == ".mp4" and formats.intersection({"mov", "mp4", "m4a", "3gp", "3g2", "mj2"}):
+        return "video/mp4"
+    if suffix == ".mov" and "mov" in formats:
+        return "video/quicktime"
+    if suffix == ".webm" and formats.intersection({"webm", "matroska"}):
+        return "video/webm"
+    return None
+
+
+def _video_mime_from_suffix(media_path: str | Path) -> str | None:
+    return {
+        ".mp4": "video/mp4",
+        ".mov": "video/quicktime",
+        ".webm": "video/webm",
+    }.get(Path(media_path).suffix.lower())
+
+
+def _classify_provider_error(exc: Exception, *, phase: str) -> AIReviewError:
+    """Translate SDK/network failures into stable, safe application reasons."""
+
+    if _looks_like_timeout(exc):
+        return AIReviewError(
+            "ai_provider_timeout",
+            "Gemini did not respond before the Full Review timeout.",
+            unavailable=True,
+            retryable=True,
+        )
+
+    status_code = getattr(exc, "code", None)
+    if isinstance(status_code, int):
+        if status_code == 401:
+            return AIReviewError(
+                "ai_provider_authentication_failed",
+                "Gemini rejected the configured server credential.",
+                unavailable=True,
+            )
+        if status_code == 403:
+            return AIReviewError(
+                "ai_provider_permission_denied",
+                "Gemini Full Review is not permitted for the configured server credential.",
+                unavailable=True,
+            )
+        if status_code == 429:
+            return AIReviewError(
+                "ai_provider_quota_exhausted",
+                "Gemini review is temporarily unavailable because the provider quota was reached.",
+                unavailable=True,
+                retryable=True,
+            )
+        if status_code >= 500:
+            return AIReviewError(
+                "ai_provider_unavailable",
+                "Gemini is temporarily unavailable.",
+                unavailable=True,
+                retryable=True,
+            )
+        if status_code == 400 and _looks_like_unsupported_media(exc):
+            return AIReviewError(
+                "ai_media_unsupported",
+                "Gemini could not process this video's media format for Full Review.",
+            )
+
+    if _looks_like_quota_error(exc):
+        return AIReviewError(
+            "ai_provider_quota_exhausted",
+            "Gemini review is temporarily unavailable because the provider quota was reached.",
+            unavailable=True,
+            retryable=True,
+        )
+    error_name = type(exc).__name__.lower()
+    if any(token in error_name for token in ("connect", "network", "transport")):
+        return AIReviewError(
+            "ai_provider_unavailable",
+            "Gemini could not be reached from the backend.",
+            unavailable=True,
+            retryable=True,
+        )
+    code = {
+        "upload": "ai_upload_failed",
+        "generation": "ai_generation_failed",
+        "grounding": "ai_grounding_failed",
+    }[phase]
+    message = {
+        "upload": "Gemini upload could not be completed.",
+        "generation": "Gemini generation could not be completed.",
+        "grounding": "Gemini grounded verification could not be completed.",
+    }[phase]
+    return AIReviewError(code, message, retryable=phase != "upload")
+
+
+def _looks_like_unsupported_media(exc: Exception) -> bool:
+    message = str(exc).lower()[:1000]
+    return any(
+        phrase in message
+        for phrase in ("unsupported mime", "unsupported media", "unsupported file", "media format")
+    )
 
 
 def _provider_citations(response: object) -> tuple[ProviderCitation, ...]:

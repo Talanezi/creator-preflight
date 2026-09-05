@@ -3,7 +3,12 @@
 from pathlib import Path
 from time import perf_counter
 
-from creator_preflight.ai_review import AIReviewError, GeminiReviewSession, GeminiVideoReviewer
+from creator_preflight.ai_review import (
+    AIReviewError,
+    GeminiReviewSession,
+    GeminiVideoReviewer,
+    provider_video_mime_type,
+)
 from creator_preflight.captions import inspect_caption_file, speech_gap_findings
 from creator_preflight.claim_review import (
     ClaimReviewer,
@@ -27,6 +32,7 @@ from creator_preflight.models import (
     CheckResult,
     ClaimReviewStatus,
     ClaimReviewSummary,
+    ExecutionIssue,
     Finding,
     FindingSeverity,
     FindingStatus,
@@ -34,6 +40,8 @@ from creator_preflight.models import (
     PromiseCheckStatus,
     PromiseCheckSummary,
     PublishingPackage,
+    ReviewMode,
+    ScanCompleteness,
     ViewerPassStatus,
     ViewerPassSummary,
 )
@@ -177,9 +185,16 @@ class PreflightScanner:
         )
 
     def scan(
-        self, media_path: str | Path, package: PublishingPackage
+        self,
+        media_path: str | Path,
+        package: PublishingPackage,
+        *,
+        review_mode: ReviewMode | None = None,
     ) -> PreflightReport:
         started_at = perf_counter()
+        effective_review_mode = review_mode or (
+            ReviewMode.FULL if self.config.ai_review.enabled else ReviewMode.LOCAL
+        )
         detector_config = self.config.detectors.model_copy(deep=True)
         detector_config.streams.expect_video = self.config.rules.video.require_video
         detector_config.streams.expect_audio = self.config.rules.video.require_audio
@@ -197,6 +212,7 @@ class PreflightScanner:
         caption_checks: list[CheckResult] = []
         caption_summary = None
         caption_cues = []
+        execution_issues: list[ExecutionIssue] = []
         if package.captions_path is not None:
             caption_result = inspect_caption_file(
                 package.captions_path,
@@ -225,13 +241,18 @@ class PreflightScanner:
                     )
                 )
             except TranscriptionUnavailableError as exc:
-                unavailable = _transcription_unavailable_finding(exc)
-                caption_findings.append(unavailable)
                 caption_checks.append(
                     CheckResult(
                         check_id="captions.speech_coverage",
                         passed=False,
-                        finding_codes=[unavailable.code],
+                        finding_codes=[],
+                    )
+                )
+                execution_issues.append(
+                    ExecutionIssue(
+                        component="captions.transcription",
+                        reason_code=exc.code,
+                        message=exc.message,
                     )
                 )
         thumbnail_info = None
@@ -239,6 +260,10 @@ class PreflightScanner:
             thumbnail_info = inspect_thumbnail(
                 package.thumbnail_path,
                 maximum_bytes=self.config.ai_review.promise_check.maximum_thumbnail_file_size_bytes,
+                maximum_width=self.config.ai_review.promise_check.maximum_thumbnail_width,
+                maximum_height=self.config.ai_review.promise_check.maximum_thumbnail_height,
+                maximum_pixels=self.config.ai_review.promise_check.maximum_thumbnail_pixels,
+                maximum_decompressed_bytes=self.config.ai_review.promise_check.maximum_thumbnail_decompressed_bytes,
             )
         ai_findings: list[Finding] = []
         ai_checks: list[CheckResult] = []
@@ -280,7 +305,19 @@ class PreflightScanner:
         needs_provider = claim_enabled or viewer_enabled or (promise_enabled and bool(package.title.strip()))
         if needs_provider and self.ai_adapter is not None:
             try:
-                session = self.ai_adapter.open_session(media_path, self.config.ai_review)
+                media_mime_type = provider_video_mime_type(
+                    anomaly_result.media.format_name, media_path
+                )
+                if media_mime_type is None:
+                    raise AIReviewError(
+                        "ai_media_unsupported",
+                        "This video container is readable locally but is not supported for Full Review.",
+                    )
+                session = self.ai_adapter.open_session(
+                    media_path,
+                    self.config.ai_review,
+                    media_mime_type=media_mime_type,
+                )
                 session.start()
             except AIReviewError as exc:
                 shared_provider_error = exc
@@ -374,11 +411,7 @@ class PreflightScanner:
             promise_summary = _promise_summary(promise_result.review, promise_task_findings)
         elif "promise" in task_errors:
             exc = task_errors["promise"]
-            finding = _ai_review_unavailable_finding(
-                exc, provider=self.config.ai_review.provider, model=self.config.ai_review.model
-            )
-            ai_findings.append(finding)
-            ai_checks.append(CheckResult(check_id="ai.promise", passed=False, finding_codes=[finding.code]))
+            ai_checks.append(CheckResult(check_id="ai.promise", passed=False, finding_codes=[]))
             promise_summary = PromiseCheckSummary(status=PromiseCheckStatus.UNAVAILABLE, explanation=exc.message)
 
         if viewer_result is not None:
@@ -407,17 +440,7 @@ class PreflightScanner:
             )
         elif "viewer" in task_errors:
             exc = task_errors["viewer"]
-            if exc is shared_provider_error and any(
-                finding.code == "AI_REVIEW_UNAVAILABLE" for finding in ai_findings
-            ):
-                viewer_failure_codes = ["AI_REVIEW_UNAVAILABLE"]
-            else:
-                finding = _viewer_unavailable_finding(
-                    exc, provider=self.config.ai_review.provider, model=self.config.ai_review.model
-                )
-                ai_findings.append(finding)
-                viewer_failure_codes = [finding.code]
-            ai_checks.append(CheckResult(check_id="ai.viewer_pass", passed=False, finding_codes=viewer_failure_codes))
+            ai_checks.append(CheckResult(check_id="ai.viewer_pass", passed=False, finding_codes=[]))
             viewer_summary = ViewerPassSummary(
                 status=ViewerPassStatus.UNAVAILABLE,
                 summary=exc.message,
@@ -463,6 +486,17 @@ class PreflightScanner:
                 explanation=exc.message,
             )
 
+        if task_errors:
+            if shared_provider_error is not None:
+                execution_issues.append(
+                    _ai_execution_issue("ai.provider", shared_provider_error)
+                )
+            else:
+                for task_name, exc in task_errors.items():
+                    execution_issues.append(
+                        _ai_execution_issue(f"ai.{task_name}", exc)
+                    )
+
         if self.config.ai_review.enabled:
             successes = int(promise_result is not None) + int(viewer_result is not None) + int(claim_result is not None)
             runtime_values = [
@@ -474,16 +508,16 @@ class PreflightScanner:
                 provider=self.config.ai_review.provider,
                 model=self.config.ai_review.model,
                 status=(
-                    AIReviewStatus.SUCCEEDED
-                    if successes
-                    else AIReviewStatus.NOT_RUN
+                    AIReviewStatus.NOT_RUN
                     if not needs_provider
                     else AIReviewStatus.UNAVAILABLE
                     if first_error and first_error.unavailable
                     else AIReviewStatus.FAILED
+                    if first_error
+                    else AIReviewStatus.SUCCEEDED
                 ),
                 observation_count=sum(
-                    finding.source.startswith("ai.") and finding.code not in {"AI_REVIEW_UNAVAILABLE", "AI_VIEWER_PASS_UNAVAILABLE"}
+                    finding.source.startswith("ai.")
                     for finding in ai_findings
                 ),
                 runtime_seconds=max(runtime_values) if runtime_values else None,
@@ -495,7 +529,7 @@ class PreflightScanner:
                         None,
                     )
                 ),
-                reason_code=first_error.code if first_error and not successes else None,
+                reason_code=first_error.code if first_error else None,
             )
         findings = reconcile_findings(
             [
@@ -531,6 +565,13 @@ class PreflightScanner:
         )
         return PreflightReport(
             verdict=verdict,
+            scan_completeness=(
+                ScanCompleteness.PARTIAL
+                if execution_issues
+                else ScanCompleteness.COMPLETE
+            ),
+            review_mode=effective_review_mode,
+            execution_issues=execution_issues,
             media=anomaly_result.media,
             findings=findings,
             checks=checks,
@@ -653,61 +694,12 @@ def _technical_check_results(
     return results
 
 
-def _transcription_unavailable_finding(
-    exc: TranscriptionUnavailableError,
-) -> Finding:
-    return Finding(
-        code="CAPTION_TRANSCRIPTION_UNAVAILABLE",
-        severity=FindingSeverity.WARNING,
-        status=FindingStatus.NEEDS_REVIEW,
+def _ai_execution_issue(component: str, exc: AIReviewError) -> ExecutionIssue:
+    return ExecutionIssue(
+        component=component,
+        reason_code=exc.code,
         message=exc.message,
-        source="captions.speech",
-        details={
-            "category": "captions",
-            "title": "Optional speech recognition unavailable",
-            "reason_code": exc.code,
-        },
-        suggestion="Disable transcription or install/configure a local faster-whisper model, then scan again.",
-    )
-
-
-def _ai_review_unavailable_finding(
-    exc: AIReviewError, *, provider: str, model: str
-) -> Finding:
-    return Finding(
-        code="AI_REVIEW_UNAVAILABLE",
-        severity=FindingSeverity.WARNING,
-        status=FindingStatus.NEEDS_REVIEW,
-        message=exc.message,
-        source=f"ai.{provider}.promise",
-        details={
-            "category": "editorial",
-            "title": "Promise Check unavailable",
-            "reason_code": exc.code,
-            "provider": provider,
-            "model": model,
-        },
-        suggestion="Review the deterministic findings and retry AI review later if needed.",
-    )
-
-
-def _viewer_unavailable_finding(
-    exc: AIReviewError, *, provider: str, model: str
-) -> Finding:
-    return Finding(
-        code="AI_VIEWER_PASS_UNAVAILABLE",
-        severity=FindingSeverity.WARNING,
-        status=FindingStatus.NEEDS_REVIEW,
-        message=exc.message,
-        source=f"ai.{provider}.viewer",
-        details={
-            "category": "editorial",
-            "title": "Final Viewer Pass unavailable",
-            "reason_code": exc.code,
-            "provider": provider,
-            "model": model,
-        },
-        suggestion="Review the deterministic findings and retry the Viewer Pass later if needed.",
+        retryable=exc.retryable,
     )
 
 

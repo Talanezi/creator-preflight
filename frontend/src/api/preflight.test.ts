@@ -1,12 +1,20 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { needsReviewReport } from "../mocks/reports";
-import { PreflightApiError, scanPreflight } from "./preflight";
+import { fetchCapabilities, PreflightApiError, scanPreflight } from "./preflight";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe("preflight API client", () => {
+  it("loads typed non-secret backend capabilities", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(capabilitiesFixture())));
+    const capabilities = await fetchCapabilities();
+    expect(capabilities.full_review_available).toBe(true);
+    expect(capabilities.supported_review_modes).toEqual(["full", "local"]);
+    expect(capabilities.maximum_video_upload_size_bytes).toBe(2_147_483_648);
+  });
+
   it("constructs the exact multipart scan request without overriding Content-Type", async () => {
     let requestUrl: RequestInfo | URL | undefined;
     let requestInit: RequestInit | undefined;
@@ -25,6 +33,7 @@ describe("preflight API client", () => {
       description: "First line\nSecond line",
       captions,
       thumbnail,
+      reviewMode: "full",
     });
 
     expect(requestUrl).toBe("/api/v1/preflight/scan");
@@ -40,6 +49,7 @@ describe("preflight API client", () => {
     expect((uploadedVideo as File).size).toBe(video.size);
     expect(form.get("title")).toBe("Exact title");
     expect(form.get("description")).toBe("First line\nSecond line");
+    expect(form.get("review_mode")).toBe("full");
     expect(uploadedCaptions).toBeInstanceOf(File);
     expect((uploadedCaptions as File).name).toBe("captions.vtt");
     expect((uploadedCaptions as File).size).toBe(captions.size);
@@ -59,6 +69,7 @@ describe("preflight API client", () => {
       video: new File(["video"], "video.mp4", { type: "video/mp4" }),
       title: "Title",
       description: "Description",
+      reviewMode: "local",
     });
 
     expect(body?.has("captions")).toBe(false);
@@ -78,6 +89,7 @@ describe("preflight API client", () => {
       video: new File(["bad"], "bad.mp4", { type: "video/mp4" }),
       title: "",
       description: "",
+      reviewMode: "local",
     })).rejects.toMatchObject({
       code: "invalid_media",
       message: "FFprobe could not parse the supplied media file.",
@@ -92,6 +104,7 @@ describe("preflight API client", () => {
       video: new File(["video"], "video.mp4", { type: "video/mp4" }),
       title: "Title",
       description: "Description",
+      reviewMode: "local",
     })).rejects.toBeInstanceOf(PreflightApiError);
   });
 
@@ -113,6 +126,7 @@ describe("preflight API client", () => {
       video: new File(["video"], "video.mp4", { type: "video/mp4" }),
       title: "Title",
       description: "Description",
+      reviewMode: "local",
     });
 
     expect(report.caption_summary).toEqual(captionReport.caption_summary);
@@ -127,6 +141,7 @@ describe("preflight API client", () => {
       video: new File(["video"], "video.mp4", { type: "video/mp4" }),
       title: "Title",
       description: "Description",
+      reviewMode: "local",
     })).rejects.toMatchObject({ code: "invalid_response" });
   });
 });
@@ -136,4 +151,20 @@ function jsonResponse(body: unknown, status = 200): Response {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function capabilitiesFixture() {
+  return {
+    ffprobe_available: true,
+    ffmpeg_available: true,
+    gemini_dependency_available: true,
+    gemini_api_key_configured: true,
+    full_review_available: true,
+    local_checks_available: true,
+    transcription_dependency_available: true,
+    transcription_enabled: false,
+    supported_review_modes: ["full", "local"],
+    maximum_video_upload_size_bytes: 2_147_483_648,
+    full_review_unavailable_reasons: [],
+  };
 }

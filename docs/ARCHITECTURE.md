@@ -4,7 +4,7 @@
 
 `creator_preflight.media` validates and inspects local media; `creator_preflight.detectors` contains the independent FFmpeg checks; `creator_preflight.rules` parses creator-style chapter lines and validates video/package metadata; `creator_preflight.captions` parses and validates SRT/WebVTT content and performs interval coverage comparisons; `creator_preflight.ai_review` isolates an optional reusable Gemini upload session, structured generation, grounded citation extraction, validation, and cleanup; `creator_preflight.promise_check`, `creator_preflight.viewer_pass`, and `creator_preflight.claim_review` own independent task-specific schemas and policies; and `creator_preflight.engine.PreflightScanner` coordinates one complete scan.
 
-The scanner reconciles redundant black-contained freeze findings, sorts final findings deterministically, records every executed check, derives counts, and computes `READY`, `NEEDS_REVIEW`, or `BLOCKED` directly from finding statuses. Caption checks are added only when a caption file is supplied, while the speech-coverage check is added only when optional transcription is enabled and audio exists. The report contains no opaque score. Both `creator_preflight.cli` and the FastAPI unified upload endpoint call this same scanner. The React interface submits the unified multipart request and renders caption findings through its existing category, timeline, and seek behavior.
+The scanner reconciles redundant black-contained freeze findings, sorts final findings deterministically, records every executed check, derives counts, and computes `READY`, `NEEDS_REVIEW`, or `BLOCKED` directly from creator-content finding statuses. Report schema 1.5 separately records `COMPLETE`, `PARTIAL`, or `FAILED` scan completeness and typed execution issues; provider/tool availability failures do not masquerade as content findings. Caption checks are added only when a caption file is supplied, while the speech-coverage check is added only when optional transcription is enabled and audio exists. The report contains no opaque score. Both `creator_preflight.cli` and the FastAPI unified upload endpoint call this same scanner.
 
 ## Target shape
 
@@ -29,7 +29,7 @@ PreflightScanner ── shared Gemini upload session ── Files/API adapter
        └── deterministic       └── validated summaries + review-only findings
 ```
 
-The Gemini API key exists only in the backend process environment. AI-disabled scans never invoke the provider. Provider failure becomes a non-blocking, structured unavailable review state and cannot erase deterministic results.
+The Gemini API key exists only in the backend process environment. AI-disabled scans never invoke the provider. Provider failure becomes a non-blocking typed execution issue and task-level unavailable state, makes scan completeness partial, and cannot alter the content verdict or erase deterministic results.
 
 The scanning engine owns input normalization, detector orchestration, finding normalization, deterministic status aggregation, and report serialization. Adapters translate CLI arguments or local HTTP request data into the same engine input and must not duplicate scan rules.
 
@@ -71,7 +71,7 @@ Final finding order is deterministic: blocking findings precede review findings,
 
 ## Data and execution
 
-The web client sends a browser-selected video, title, description, optional captions, and optional thumbnail to a FastAPI server running on the same machine. Vite proxies `/api` to FastAPI during local development. The server returns the normalized report in the same request, closes the uploads, and removes its temporary directory after success or failure. The selected browser file supplies the local preview; media is not downloaded back from the server. The application does not persist scans in a database.
+The web client first reads `/api/v1/capabilities`, then explicitly sends `review_mode=full` or `review_mode=local` with the browser-selected video, title, description, optional captions, and optional thumbnail. Full mode deliberately enables the three Gemini tasks for that request; local mode forcibly disables them. Vite proxies `/api` to FastAPI during local development. The server preserves a recognized video-container suffix, confirms the container with FFprobe, and supplies an explicit bounded MIME type to Gemini. It streams uploads under a configured size limit, executes synchronous scan work in an AnyIO worker thread, bounds process-local scan concurrency, closes uploads, and removes its temporary directory after success or failure. An exact configurable Origin allowlist protects expensive browser POSTs while non-browser clients without an Origin remain supported.
 
 Configuration is loaded from YAML, validated before scanning, and passed explicitly into the engine. Defaults live in `config/preflight.default.yml`. Reports include a schema version so formats can evolve without silent ambiguity.
 

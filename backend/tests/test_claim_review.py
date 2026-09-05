@@ -143,7 +143,8 @@ class Files:
             mime_type="video/mp4", state=SimpleNamespace(name="ACTIVE"),
         )
 
-    def upload(self, *, file):
+    def upload(self, *, file, config=None):
+        del config
         self.upload_count += 1
         return self.remote
 

@@ -12,7 +12,12 @@ from creator_preflight.config import ConfigurationError, PreflightConfig, load_c
 from creator_preflight.detectors import DetectorExecutionError
 from creator_preflight.engine import PreflightScanner
 from creator_preflight.media import MediaInspectionError
-from creator_preflight.models import FindingStatus, PreflightReport, PublishingPackage
+from creator_preflight.models import (
+    FindingStatus,
+    PreflightReport,
+    PublishingPackage,
+    ScanCompleteness,
+)
 from creator_preflight.thumbnails import ThumbnailValidationError
 
 
@@ -73,6 +78,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(report.model_dump_json())
     else:
         print(format_human_report(report))
+    if report.scan_completeness is not ScanCompleteness.COMPLETE:
+        return 2
     return 0 if report.verdict is FindingStatus.READY else 1
 
 
@@ -100,6 +107,7 @@ def format_human_report(report: PreflightReport) -> str:
         "CREATOR PREFLIGHT",
         "",
         report.verdict.value.replace("_", " "),
+        f"Scan completeness: {report.scan_completeness.value}",
         "",
         "Media",
         f"{dimensions} • {media.video_codec or 'no video'} • "

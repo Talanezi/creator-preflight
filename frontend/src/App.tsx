@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HardDrive } from "lucide-react";
-import { errorPresentation, isAbortError, scanPreflight } from "./api/preflight";
+import { errorPresentation, fetchCapabilities, isAbortError, scanPreflight } from "./api/preflight";
 import { ErrorState } from "./components/ErrorState";
 import { ProcessingState } from "./components/ProcessingState";
 import { ResultsView } from "./components/ResultsView";
 import { ScanForm, type ScanInputs } from "./components/ScanForm";
-import type { PreflightReport } from "./types/preflight";
+import type { PreflightCapabilities, PreflightReport, ReviewMode } from "./types/preflight";
 
 type ViewState = "input" | "processing" | "result" | "error";
 
@@ -15,6 +15,7 @@ const emptyInputs: ScanInputs = {
   description: "",
   captions: null,
   thumbnail: null,
+  reviewMode: "local",
 };
 
 export function App() {
@@ -23,8 +24,25 @@ export function App() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [report, setReport] = useState<PreflightReport | null>(null);
   const [error, setError] = useState<ReturnType<typeof errorPresentation> | null>(null);
+  const [capabilities, setCapabilities] = useState<PreflightCapabilities | null>(null);
+  const [capabilityError, setCapabilityError] = useState(false);
   const activeRequest = useRef<AbortController | null>(null);
   const requestSequence = useRef(0);
+  const modeChosen = useRef(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchCapabilities({ signal: controller.signal }).then((next) => {
+      setCapabilities(next);
+      setCapabilityError(false);
+      if (next.full_review_available && !modeChosen.current) {
+        setInputs((current) => ({ ...current, reviewMode: "full" }));
+      }
+    }).catch((loadError) => {
+      if (!isAbortError(loadError)) setCapabilityError(true);
+    });
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     if (!inputs.video || typeof URL.createObjectURL !== "function") {
@@ -45,11 +63,15 @@ export function App() {
     requestSequence.current += 1;
     activeRequest.current?.abort();
     activeRequest.current = null;
-    setInputs(emptyInputs);
+    modeChosen.current = false;
+    setInputs({
+      ...emptyInputs,
+      reviewMode: capabilities?.full_review_available ? "full" : "local",
+    });
     setReport(null);
     setError(null);
     setView("input");
-  }, []);
+  }, [capabilities]);
 
   const returnToForm = useCallback(() => {
     setReport(null);
@@ -77,6 +99,7 @@ export function App() {
           description: inputs.description,
           captions: inputs.captions,
           thumbnail: inputs.thumbnail,
+          reviewMode: inputs.reviewMode,
         },
         { signal: controller.signal },
       );
@@ -92,6 +115,11 @@ export function App() {
     }
   }, [inputs]);
 
+  const updateInputs = useCallback((next: ScanInputs) => {
+    if (next.reviewMode !== inputs.reviewMode) modeChosen.current = true;
+    setInputs(next);
+  }, [inputs.reviewMode]);
+
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -105,10 +133,16 @@ export function App() {
       </header>
 
       {view === "input" && (
-        <ScanForm inputs={inputs} onChange={setInputs} onRun={() => void runScan()} />
+        <ScanForm
+          inputs={inputs}
+          capabilities={capabilities}
+          capabilityError={capabilityError}
+          onChange={updateInputs}
+          onRun={() => void runScan()}
+        />
       )}
       {view === "processing" && (
-        <ProcessingState filename={inputs.video?.name ?? "selected video"} />
+        <ProcessingState filename={inputs.video?.name ?? "selected video"} reviewMode={inputs.reviewMode} />
       )}
       {view === "result" && report && (
         <ResultsView

@@ -196,6 +196,14 @@ class PromiseCheckConfig(BaseModel):
     maximum_thumbnail_file_size_bytes: int = Field(
         default=5_000_000, gt=0, le=20_000_000
     )
+    maximum_thumbnail_width: int = Field(default=8192, gt=0, le=32768)
+    maximum_thumbnail_height: int = Field(default=8192, gt=0, le=32768)
+    maximum_thumbnail_pixels: int = Field(
+        default=16_777_216, gt=0, le=268_435_456
+    )
+    maximum_thumbnail_decompressed_bytes: int = Field(
+        default=64_000_000, gt=0, le=268_435_456
+    )
 
 
 class ViewerPassConfig(BaseModel):
@@ -219,6 +227,31 @@ class ClaimReviewConfig(BaseModel):
     minimum_conflict_confidence: float = Field(default=0.75, ge=0, le=1)
 
 
+class APIConfig(BaseModel):
+    """Bounded process-local settings for the FastAPI adapter."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    maximum_video_upload_size_bytes: int = Field(
+        default=2_147_483_648, gt=0, le=10_737_418_240
+    )
+    maximum_concurrent_scans: int = Field(default=2, ge=1, le=8)
+    allowed_browser_origins: list[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ]
+    )
+
+    @field_validator("allowed_browser_origins")
+    @classmethod
+    def validate_allowed_origins(cls, values: list[str]) -> list[str]:
+        cleaned = [value.strip().rstrip("/") for value in values]
+        if any(not value.startswith(("http://", "https://")) for value in cleaned):
+            raise ValueError("browser origins must use http:// or https://")
+        return list(dict.fromkeys(cleaned))
+
+
 class CreatorRuleConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -238,6 +271,7 @@ class PreflightConfig(BaseModel):
     rules: CreatorRuleConfig = Field(default_factory=CreatorRuleConfig)
     transcription: TranscriptionConfig = Field(default_factory=TranscriptionConfig)
     ai_review: AIReviewConfig = Field(default_factory=AIReviewConfig)
+    api: APIConfig = Field(default_factory=APIConfig)
 
 
 class ConfigurationError(Exception):
