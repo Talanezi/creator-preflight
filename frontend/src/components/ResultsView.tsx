@@ -28,6 +28,7 @@ interface ResultsViewProps {
   filename?: string;
   previewUrl?: string | null;
   sourceFile?: File | null;
+  packageInput?: { title: string; description: string; captions?: File | null; thumbnail?: File | null; reviewMode: "full" | "local" };
 }
 
 const verdictCopy: Record<FindingStatus, { label: string; description: string }> = {
@@ -51,6 +52,7 @@ export function ResultsView({
   filename = "creator-export-final.mp4",
   previewUrl,
   sourceFile = null,
+  packageInput,
 }: ResultsViewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const categories = useMemo(
@@ -129,6 +131,7 @@ export function ResultsView({
         sourceFile={sourceFile}
         originalPreviewUrl={previewUrl}
         onSeek={seekToSeconds}
+        packageInput={packageInput}
       />
 
       <div className="review-workspace">

@@ -33,6 +33,8 @@ from creator_preflight.models import (
 from creator_preflight.repair_models import RepairOperation, RepairOperationBatch
 from creator_preflight.repairs import FFmpegRepairEngine, RepairError
 from creator_preflight.thumbnails import ThumbnailValidationError, inspect_thumbnail
+from creator_preflight.verification import verify_repair
+from creator_preflight.verification_models import ReviewReelManifest, VerificationReport
 
 app = FastAPI(title="Creator Preflight", version="0.1.0")
 _VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv", ".webm"}
@@ -202,7 +204,13 @@ async def scan_uploaded_package(
     """Temporarily store a package and run the shared scanner off the event loop."""
 
     base_config, configuration_source = _api_config()
-    _require_allowed_origin(request, base_config)
+    try:
+        _require_allowed_origin(request, base_config)
+    except RequestOriginError:
+        for upload in (file, captions, thumbnail):
+            if upload is not None:
+                await upload.close()
+        raise
     mode = _parse_review_mode(review_mode)
     config = _effective_web_config(base_config, mode)
     if not _scan_capacity.acquire(config.api.maximum_concurrent_scans):
@@ -285,6 +293,125 @@ async def apply_repairs(
         operations=batch.operations,
         preview=False,
     )
+
+
+@app.post("/api/v1/repairs/verify", response_model=VerificationReport)
+async def verify_repaired_video(
+    request: Request,
+    original_file: UploadFile = File(...),
+    repaired_file: UploadFile = File(...),
+    operations_json: str = Form(...),
+    original_report_json: str = Form(...),
+    title: str = Form(default=""),
+    description: str = Form(default=""),
+    review_mode: str = Form(default="local"),
+    captions: UploadFile | None = File(default=None),
+    thumbnail: UploadFile | None = File(default=None),
+) -> VerificationReport:
+    """Re-scan a rendered export and verify it against its approved operations."""
+
+    try:
+        batch = RepairOperationBatch.model_validate_json(operations_json)
+        original_report = PreflightReport.model_validate_json(original_report_json)
+    except (ValidationError, ValueError, TypeError) as exc:
+        for upload in (original_file, repaired_file, captions, thumbnail):
+            if upload is not None:
+                await upload.close()
+        raise RepairError("verification_request_invalid", "The repair verification request is invalid.") from exc
+    base_config, configuration_source = _api_config()
+    try:
+        _require_allowed_origin(request, base_config)
+    except RequestOriginError:
+        for upload in (original_file, repaired_file, captions, thumbnail):
+            if upload is not None:
+                await upload.close()
+        raise
+    mode = _parse_review_mode(review_mode)
+    config = _effective_web_config(base_config, mode)
+    if not _scan_capacity.acquire(config.api.maximum_concurrent_scans):
+        for upload in (original_file, repaired_file, captions, thumbnail):
+            if upload is not None:
+                await upload.close()
+        raise ScanBusyError()
+    try:
+        with TemporaryDirectory(prefix="creator-preflight-verify-") as temporary_directory:
+            directory = Path(temporary_directory)
+            original_path = _media_temp_path(temporary_directory, original_file.filename)
+            repaired_path = directory / f"repaired{Path(repaired_file.filename or '').suffix.lower() if Path(repaired_file.filename or '').suffix.lower() in _VIDEO_SUFFIXES else '.mp4'}"
+            await _copy_upload(original_file, original_path, config.api.maximum_video_upload_size_bytes)
+            await _copy_upload(repaired_file, repaired_path, config.api.maximum_video_upload_size_bytes)
+            caption_path = await _copy_optional_bounded(captions, directory / "captions.upload", config.rules.captions.maximum_file_size_bytes + 1)
+            thumbnail_path = await _copy_optional_bounded(thumbnail, directory / "thumbnail.upload", config.ai_review.promise_check.maximum_thumbnail_file_size_bytes + 1)
+            if thumbnail_path is not None:
+                inspect_thumbnail(
+                    thumbnail_path,
+                    maximum_bytes=config.ai_review.promise_check.maximum_thumbnail_file_size_bytes,
+                    maximum_width=config.ai_review.promise_check.maximum_thumbnail_width,
+                    maximum_height=config.ai_review.promise_check.maximum_thumbnail_height,
+                    maximum_pixels=config.ai_review.promise_check.maximum_thumbnail_pixels,
+                    maximum_decompressed_bytes=config.ai_review.promise_check.maximum_thumbnail_decompressed_bytes,
+                )
+            package = PublishingPackage(title=title, description=description, captions_path=caption_path, thumbnail_path=thumbnail_path)
+            scanner = PreflightScanner(config=config, configuration_source=configuration_source)
+            repaired_report = await anyio.to_thread.run_sync(partial(scanner.scan, repaired_path, package, review_mode=mode))
+            return await anyio.to_thread.run_sync(
+                partial(verify_repair, original_path, repaired_path, batch.operations, original_report, repaired_report, config.verification)
+            )
+    finally:
+        _scan_capacity.release()
+        for upload in (original_file, repaired_file, captions, thumbnail):
+            if upload is not None:
+                await upload.close()
+
+
+@app.post("/api/v1/repairs/review-reel", response_class=FileResponse)
+async def render_review_reel(
+    request: Request,
+    repaired_file: UploadFile = File(...),
+    manifest_json: str = Form(...),
+) -> FileResponse:
+    """Render the server-validated repaired-timeline intervals in a reel manifest."""
+
+    try:
+        manifest = ReviewReelManifest.model_validate_json(manifest_json)
+    except (ValidationError, ValueError, TypeError) as exc:
+        await repaired_file.close()
+        raise RepairError("review_reel_manifest_invalid", "The review reel manifest is invalid.") from exc
+    config, _ = _api_config()
+    try:
+        _require_allowed_origin(request, config)
+    except RequestOriginError:
+        await repaired_file.close()
+        raise
+    if not manifest.entries:
+        await repaired_file.close()
+        raise RepairError("review_reel_empty", "There are no repair moments to include in a review reel.")
+    if not _scan_capacity.acquire(config.api.maximum_concurrent_scans):
+        await repaired_file.close()
+        raise ScanBusyError()
+    temporary_directory = Path(mkdtemp(prefix="creator-preflight-reel-"))
+    response_created = False
+    try:
+        source_path = _media_temp_path(str(temporary_directory), repaired_file.filename)
+        await _copy_upload(repaired_file, source_path, config.api.maximum_video_upload_size_bytes)
+        media = await anyio.to_thread.run_sync(MediaInspector().inspect, source_path)
+        output_path = temporary_directory / "review-reel.mp4"
+        intervals = [(entry.source_start_seconds, entry.source_end_seconds) for entry in manifest.entries]
+        result = await anyio.to_thread.run_sync(partial(FFmpegRepairEngine().render_segments, source_path, output_path, intervals, media=media))
+        response = FileResponse(
+            result.output_path,
+            media_type="video/mp4",
+            filename="creator-preflight.review-reel.mp4",
+            background=BackgroundTask(shutil.rmtree, temporary_directory, True),
+            headers={"X-Review-Reel-Duration": f"{result.output_duration_seconds:.6f}"},
+        )
+        response_created = True
+        return response
+    finally:
+        _scan_capacity.release()
+        await repaired_file.close()
+        if not response_created:
+            shutil.rmtree(temporary_directory, ignore_errors=True)
 
 
 async def _copy_upload(upload: UploadFile, destination: Path, maximum_bytes: int) -> None:

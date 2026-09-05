@@ -336,7 +336,11 @@ describe("Creator Preflight frontend", () => {
   });
 
   it("renders backend-owned repair classes, previews, approvals, multiple apply, and download", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve(repairVideoResponse())));
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((url: RequestInfo | URL) => {
+      const path = String(url);
+      if (path.endsWith("/repairs/verify")) return Promise.resolve(jsonResponse(verificationFixture("VERIFIED")));
+      return Promise.resolve(repairVideoResponse());
+    }));
     const user = userEvent.setup();
     const report = repairWorkflowReport();
     const source = new File(["original-video"], "original cut.mp4", { type: "video/mp4" });
@@ -364,11 +368,71 @@ describe("Creator Preflight frontend", () => {
     await user.click(screen.getByRole("button", { name: "Approve repair" }));
 
     await user.click(screen.getByRole("button", { name: /Apply 2 approved repairs/ }));
-    expect(await screen.findByRole("heading", { name: "Repaired video" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Repair verified" })).toBeInTheDocument();
     expect(screen.getByTestId("repaired-video")).toBeInTheDocument();
+    expect(screen.getByTestId("review-reel-video")).toBeInTheDocument();
+    expect(screen.getByText(/2 resolved/)).toBeInTheDocument();
+    expect(screen.getByText(/No unexpected visual changes detected/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Download repaired video" })).toHaveAttribute(
       "download", "original cut.repaired.mp4",
     );
+    expect(screen.getByRole("link", { name: "Download Review Reel" })).toBeInTheDocument();
+  });
+
+  it("tracks timestamped and global human-review decisions without calling accepted items resolved", async () => {
+    const user = userEvent.setup();
+    render(<ResultsView report={needsReviewReport} previewUrl="blob:original" />);
+    const video = screen.getByTestId("preview-video") as HTMLVideoElement;
+
+    expect(screen.getByText("4 findings require your judgment.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Human review counts")).toHaveTextContent("0 accepted · 0 need change · 4 pending");
+
+    const silence = repairItem("Long silent section");
+    await user.click(within(silence).getByRole("button", { name: "Review moment" }));
+    expect(video.currentTime).toBe(3);
+    await user.click(within(silence).getByRole("button", { name: "Looks intentional" }));
+    expect(within(silence).getByText("Reviewed — accepted")).toBeInTheDocument();
+    expect(within(silence).getByText("Marked intentional by you.")).toBeInTheDocument();
+    expect(within(silence).queryByText(/resolved/i)).not.toBeInTheDocument();
+
+    const peak = repairItem("Audio peak near full scale");
+    expect(within(peak).queryByRole("button", { name: "Review moment" })).not.toBeInTheDocument();
+    await user.click(within(peak).getByRole("button", { name: "Needs a change" }));
+    expect(within(peak).getByText("Needs change")).toBeInTheDocument();
+    expect(within(peak).getByText("You marked this as something that still needs editing.")).toBeInTheDocument();
+
+    await user.click(within(peak).getByRole("button", { name: "Change decision" }));
+    expect(within(peak).getByText("Your judgment")).toBeInTheDocument();
+    expect(screen.getByLabelText("Human review counts")).toHaveTextContent("1 accepted · 0 need change · 3 pending");
+
+    await user.click(within(repairItem("Sustained static-frame section")).getByRole("button", { name: "Looks intentional" }));
+    await user.click(within(repairItem("Audio peak near full scale")).getByRole("button", { name: "Needs a change" }));
+    await user.click(within(repairItem("Title exceeds recommended length")).getByRole("button", { name: "Looks intentional" }));
+    expect(screen.getByLabelText("Human review counts")).toHaveTextContent("3 accepted · 1 needs change · 0 pending");
+    expect(screen.getByText("Human review is complete. 1 issue still needs editing.")).toBeInTheDocument();
+
+    await user.click(within(repairItem("Audio peak near full scale")).getByRole("button", { name: "Change decision" }));
+    expect(screen.getByLabelText("Human review counts")).toHaveTextContent("3 accepted · 0 need change · 1 pending");
+    expect(screen.queryByText(/Human review is complete/)).not.toBeInTheDocument();
+  });
+
+  it("does not carry human-review decisions into a new scan", async () => {
+    vi.stubGlobal("fetch", appFetch([
+      () => Promise.resolve(jsonResponse(needsReviewReport)),
+      () => Promise.resolve(jsonResponse(needsReviewReport)),
+    ]));
+    const user = userEvent.setup();
+    render(<App />);
+
+    await selectVideoAndRun(user, "first.mp4");
+    await user.click(within(repairItem("Audio peak near full scale")).getByRole("button", { name: "Looks intentional" }));
+    expect(screen.getByLabelText("Human review counts")).toHaveTextContent("1 accepted");
+
+    await user.click(screen.getByRole("button", { name: "New scan" }));
+    await selectVideoAndRun(user, "second.mp4");
+    expect(await screen.findByLabelText("Human review counts")).toHaveTextContent("0 accepted · 0 need change · 4 pending");
+    expect(within(repairItem("Audio peak near full scale")).getByText("Your judgment")).toBeInTheDocument();
+    expect(screen.queryByText("Marked intentional by you.")).not.toBeInTheDocument();
   });
 
   it("keeps the original report usable when repair preview rendering fails", async () => {
@@ -389,11 +453,70 @@ describe("Creator Preflight frontend", () => {
     expect(screen.getByRole("button", { name: "Approve repair" })).toBeDisabled();
   });
 
+  it.each([
+    ["NEEDS_REVIEW", "Repair needs review"],
+    ["INCOMPLETE", "Verification incomplete"],
+  ] as const)("renders %s repaired verification without losing the repaired export", async (status, heading) => {
+    let repairCall = 0;
+    vi.stubGlobal("fetch", vi.fn((url: RequestInfo | URL) => {
+      if (String(url).endsWith("/repairs/verify")) return Promise.resolve(jsonResponse(verificationFixture(status)));
+      repairCall += 1;
+      return Promise.resolve(repairVideoResponse());
+    }));
+    const user = userEvent.setup();
+    render(<ResultsView report={needsReviewReport} previewUrl="blob:original" sourceFile={new File(["video"], "source.mp4", { type: "video/mp4" })} />);
+    await user.click(screen.getByRole("button", { name: "Preview repair" }));
+    await screen.findByTestId("repair-preview-video");
+    await user.click(screen.getByRole("button", { name: "Approve repair" }));
+    await user.click(screen.getByRole("button", { name: /Apply 1 approved repair/ }));
+    expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
+    expect(screen.getByTestId("repaired-video")).toBeInTheDocument();
+    if (status === "NEEDS_REVIEW") {
+      expect(screen.getByText("Unexpected change")).toBeInTheDocument();
+      const repairedVideo = screen.getByTestId("repaired-video") as HTMLVideoElement;
+      await user.click(screen.getByRole("button", { name: "00:01.00–00:02.00" }));
+      expect(repairedVideo.currentTime).toBe(1);
+    }
+    expect(repairCall).toBeGreaterThanOrEqual(2);
+  });
+
+  it("preserves the repaired video when automatic verification fails", async () => {
+    vi.stubGlobal("fetch", vi.fn((url: RequestInfo | URL) => {
+      if (String(url).endsWith("/repairs/verify")) return Promise.resolve(jsonResponse({ error: { code: "verification_regression_failed", message: "Visual verification could not complete.", details: null } }, 500));
+      return Promise.resolve(repairVideoResponse());
+    }));
+    const user = userEvent.setup();
+    render(<ResultsView report={needsReviewReport} previewUrl="blob:original" sourceFile={new File(["video"], "source.mp4", { type: "video/mp4" })} />);
+    await user.click(screen.getByRole("button", { name: "Preview repair" }));
+    await screen.findByTestId("repair-preview-video");
+    await user.click(screen.getByRole("button", { name: "Approve repair" }));
+    await user.click(screen.getByRole("button", { name: /Apply 1 approved repair/ }));
+    expect(await screen.findByText(/Verification could not finish/)).toBeInTheDocument();
+    expect(screen.getByTestId("repaired-video")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Needs review" })).toBeInTheDocument();
+  });
+
+  it("automatically enters a verifying state after the repaired render", async () => {
+    vi.stubGlobal("fetch", vi.fn((url: RequestInfo | URL) => {
+      if (String(url).endsWith("/repairs/verify")) return new Promise<Response>(() => undefined);
+      return Promise.resolve(repairVideoResponse());
+    }));
+    const user = userEvent.setup();
+    render(<ResultsView report={needsReviewReport} previewUrl="blob:original" sourceFile={new File(["video"], "source.mp4", { type: "video/mp4" })} />);
+    await user.click(screen.getByRole("button", { name: "Preview repair" }));
+    await screen.findByTestId("repair-preview-video");
+    await user.click(screen.getByRole("button", { name: "Approve repair" }));
+    await user.click(screen.getByRole("button", { name: /Apply 1 approved repair/ }));
+    expect(await screen.findByText(/Verifying repair/)).toBeInTheDocument();
+    expect(screen.getByTestId("repaired-video")).toBeInTheDocument();
+  });
+
   it("New scan clears approvals, repaired media, and repair object URLs", async () => {
     const fetchMock = vi.fn((url: RequestInfo | URL) => {
       const path = String(url);
       if (path.endsWith("/capabilities")) return Promise.resolve(jsonResponse(capabilitiesFixture()));
       if (path.endsWith("/preflight/scan")) return Promise.resolve(jsonResponse(needsReviewReport));
+      if (path.endsWith("/repairs/verify")) return Promise.resolve(jsonResponse(verificationFixture("VERIFIED")));
       return Promise.resolve(repairVideoResponse());
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -405,12 +528,13 @@ describe("Creator Preflight frontend", () => {
     await screen.findByTestId("repair-preview-video");
     await user.click(screen.getByRole("button", { name: "Approve repair" }));
     await user.click(screen.getByRole("button", { name: /Apply 1 approved repair/ }));
-    expect(await screen.findByRole("heading", { name: "Repaired video" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Repair verified" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "New scan" }));
     expect(screen.getByTestId("input-state")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Repair queue" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Repaired video" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Review Reel" })).not.toBeInTheDocument();
     expect(revokeObjectURL).toHaveBeenCalled();
   });
 
@@ -760,6 +884,13 @@ function repairWorkflowReport(): PreflightReport {
   };
 }
 
+function repairItem(title: string): HTMLElement {
+  const queue = screen.getByRole("region", { name: "Repair queue" });
+  const item = within(queue).getByRole("heading", { name: title }).closest("article");
+  if (!item) throw new Error(`Repair item not found for ${title}`);
+  return item;
+}
+
 function repairVideoResponse(): Response {
   return new Response(new Blob(["repaired-video"], { type: "video/mp4" }), {
     status: 200,
@@ -770,4 +901,26 @@ function repairVideoResponse(): Response {
       "X-Repair-Removed-Duration": "3",
     },
   });
+}
+
+function verificationFixture(status: "VERIFIED" | "NEEDS_REVIEW" | "INCOMPLETE") {
+  const original = repairWorkflowReport().findings;
+  return {
+    schema_version: "1.0",
+    status,
+    approved_repair_count: 2,
+    resolved: original.slice(0, 2).map((finding) => ({ status: "RESOLVED", original_finding: finding, repaired_finding: null, expected_repaired_start_seconds: null, expected_repaired_end_seconds: null, deterministically_verified: true, explanation: "The approved interval was removed." })),
+    remaining: status === "NEEDS_REVIEW" ? [{ status: "REMAINING", original_finding: original[2], repaired_finding: original[2], expected_repaired_start_seconds: 2, expected_repaired_end_seconds: 3, deterministically_verified: false, explanation: "The finding remains." }] : [],
+    new: [],
+    unexpected_changes: status === "NEEDS_REVIEW" ? [{ start_seconds: 1, end_seconds: 2, maximum_mean_difference: 40, sample_count: 2 }] : [],
+    original_duration_seconds: 12,
+    repaired_duration_seconds: 6,
+    expected_duration_seconds: 6,
+    integrity: { passed: true, duration_matches: true, streams_match: true, resolution_matches: true, operations_verified: 2, reference_intervals_survived: true, explanation: "Integrity passed." },
+    repaired_preflight_report: { ...readyReport, scan_completeness: status === "INCOMPLETE" ? "PARTIAL" : "COMPLETE", execution_issues: status === "INCOMPLETE" ? [{ component: "ai.provider", reason_code: "ai_provider_timeout", message: "Remote review timed out.", retryable: true }] : [], media: { ...readyReport.media, duration_seconds: 6 } },
+    regression_analysis_completeness: "COMPLETE",
+    review_reel_manifest: { entries: [{ reel_start_seconds: 0, reel_end_seconds: 4, source_start_seconds: 0, source_end_seconds: 4, reason: "Approved range removed", category: "repair", source_id: "repair-1" }], total_duration_seconds: 4 },
+    review_reel_available: true,
+    limitations: [],
+  };
 }

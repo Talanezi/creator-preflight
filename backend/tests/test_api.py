@@ -13,6 +13,10 @@ from creator_preflight import api as api_module
 from creator_preflight.detectors import DetectorExecutionError
 from creator_preflight.config import PreflightConfig
 from creator_preflight.ai_review import GeminiVideoReviewer
+from creator_preflight.engine import PreflightScanner
+from creator_preflight.models import PublishingPackage
+from creator_preflight.repair_models import RepairOperation
+from creator_preflight.repairs import FFmpegRepairEngine
 
 client = TestClient(app)
 
@@ -620,3 +624,99 @@ def test_detector_timeout_uses_gateway_timeout_response(
             "details": {"detector": "black", "timeout_seconds": 1},
         }
     }
+
+
+def test_verify_repair_rescans_and_returns_typed_report(api_anomaly_video: Path, tmp_path: Path) -> None:
+    operation = RepairOperation(operation_type="REMOVE_RANGE", start_seconds=2, end_seconds=5)
+    package = PublishingPackage(title="Repair verification", description="A valid package")
+    original_report = PreflightScanner().scan(api_anomaly_video, package)
+    repaired = tmp_path / "repaired.mp4"
+    FFmpegRepairEngine().render(api_anomaly_video, repaired, [operation])
+    with api_anomaly_video.open("rb") as original, repaired.open("rb") as rendered:
+        response = client.post(
+            "/api/v1/repairs/verify",
+            files={"original_file": ("original.mp4", original, "video/mp4"), "repaired_file": ("repaired.mp4", rendered, "video/mp4")},
+            data={"operations_json": json.dumps({"operations": [operation.model_dump(mode="json")]}), "original_report_json": original_report.model_dump_json(), "title": package.title, "description": package.description, "review_mode": "local"},
+        )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["approved_repair_count"] == 1
+    assert payload["integrity"]["passed"] is True
+    assert payload["repaired_preflight_report"]["review_mode"] == "local"
+    assert any(item["original_finding"]["code"] == "VIDEO_BLACK_SEGMENT" for item in payload["resolved"])
+    assert payload["unexpected_changes"] == []
+    assert payload["review_reel_available"] is True
+
+
+def test_review_reel_api_returns_playable_mp4(api_anomaly_video: Path) -> None:
+    manifest = {"entries": [{"reel_start_seconds": 0, "reel_end_seconds": 2, "source_start_seconds": 0, "source_end_seconds": 2, "reason": "Approved range removed", "category": "repair", "source_id": "repair-1"}], "total_duration_seconds": 2}
+    with api_anomaly_video.open("rb") as rendered:
+        response = client.post("/api/v1/repairs/review-reel", files={"repaired_file": ("repaired.mp4", rendered, "video/mp4")}, data={"manifest_json": json.dumps(manifest)})
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "video/mp4"
+    assert "review-reel.mp4" in response.headers["content-disposition"]
+    assert len(response.content) > 1000
+
+
+def test_verify_repair_reuses_origin_and_upload_limits(api_anomaly_video: Path, monkeypatch) -> None:
+    config = PreflightConfig()
+    config.api.maximum_video_upload_size_bytes = 100
+    monkeypatch.setattr(api_module, "_api_config", lambda: (config, "test"))
+    operation = {"operation_type": "REMOVE_RANGE", "start_seconds": 2, "end_seconds": 5}
+    original_report = PreflightScanner().scan(api_anomaly_video, PublishingPackage(title="Title", description="Description"))
+    with api_anomaly_video.open("rb") as original, api_anomaly_video.open("rb") as repaired:
+        response = client.post("/api/v1/repairs/verify", files={"original_file": ("original.mp4", original, "video/mp4"), "repaired_file": ("repaired.mp4", repaired, "video/mp4")}, data={"operations_json": json.dumps({"operations": [operation]}), "original_report_json": original_report.model_dump_json()}, headers={"Origin": "http://127.0.0.1:5173"})
+    assert response.status_code == 413
+    with api_anomaly_video.open("rb") as original, api_anomaly_video.open("rb") as repaired:
+        blocked = client.post("/api/v1/repairs/verify", files={"original_file": ("original.mp4", original, "video/mp4"), "repaired_file": ("repaired.mp4", repaired, "video/mp4")}, data={"operations_json": json.dumps({"operations": [operation]}), "original_report_json": original_report.model_dump_json()}, headers={"Origin": "https://evil.example"})
+    assert blocked.status_code == 403
+
+
+def test_full_review_repaired_scan_uses_existing_fake_provider_session(video_with_audio: Path, tmp_path: Path, monkeypatch) -> None:
+    config = PreflightConfig()
+    config.rules.video.minimum_width = 160
+    config.rules.video.minimum_height = 90
+    config.rules.video.allowed_aspect_ratios = ["16:9"]
+    monkeypatch.setattr(api_module, "_api_config", lambda: (config, "test"))
+    monkeypatch.setenv("GEMINI_API_KEY", "test-only-key")
+    operation = RepairOperation(operation_type="REMOVE_RANGE", start_seconds=0.2, end_seconds=0.4)
+    package = PublishingPackage(title="Title", description="Description")
+    original_report = PreflightScanner(config=config).scan(video_with_audio, package)
+    repaired = tmp_path / "repaired.mp4"
+    FFmpegRepairEngine().render(video_with_audio, repaired, [operation])
+
+    class FakeFiles:
+        upload_count = 0
+        delete_count = 0
+        def upload(self, **kwargs):
+            self.upload_count += 1
+            return SimpleNamespace(name="files/repaired", uri="https://provider.invalid/repaired", mime_type="video/mp4", state=SimpleNamespace(name="ACTIVE"))
+        def get(self, **kwargs):
+            raise AssertionError("active file must not poll")
+        def delete(self, **kwargs):
+            self.delete_count += 1
+
+    class FakeModels:
+        calls = 0
+        def generate_content(self, **kwargs):
+            self.calls += 1
+            title = kwargs["config"]["response_json_schema"]["title"]
+            payload = {
+                "PromiseReviewResult": {"inferred_promise": "Explain a test.", "first_substantive_address_seconds": 0, "first_substantive_address_evidence": "It starts.", "overall_delivery": "aligned", "overall_delivery_explanation": "Aligned.", "confidence": 0.9, "thumbnail_alignment": None, "thumbnail_alignment_explanation": None, "issues": []},
+                "ViewerPassResult": {"overall_status": "clean", "summary": "Clean.", "issues": []},
+                "ClaimExtractionResult": {"claims": []},
+            }[title]
+            return SimpleNamespace(text=json.dumps(payload), candidates=[])
+
+    fake_client = SimpleNamespace(files=FakeFiles(), models=FakeModels(), close=lambda: None)
+    monkeypatch.setattr(GeminiVideoReviewer, "_create_client", lambda *args, **kwargs: fake_client)
+    with video_with_audio.open("rb") as original, repaired.open("rb") as rendered:
+        response = client.post("/api/v1/repairs/verify", files={"original_file": ("original.mp4", original, "video/mp4"), "repaired_file": ("repaired.mp4", rendered, "video/mp4")}, data={"operations_json": json.dumps({"operations": [operation.model_dump(mode="json")]}), "original_report_json": original_report.model_dump_json(), "title": "Title", "description": "Description", "review_mode": "full"})
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["repaired_preflight_report"]["scan_completeness"] == "COMPLETE"
+    assert payload["repaired_preflight_report"]["promise_check"]["status"] == "aligned"
+    assert payload["repaired_preflight_report"]["viewer_pass"]["status"] == "clean"
+    assert fake_client.files.upload_count == 1
+    assert fake_client.models.calls == 3
+    assert fake_client.files.delete_count == 1

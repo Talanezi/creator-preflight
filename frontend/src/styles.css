@@ -324,6 +324,20 @@ svg { flex: 0 0 auto; }
 }
 .repair-header h2, .repair-preview h3, .repaired-output h3 { margin: 0; font-size: 18px; letter-spacing: -0.02em; }
 .repair-header p, .repair-preview header p, .repaired-output p { margin: 5px 0 0; color: var(--muted); font-size: 13px; }
+.human-review-summary {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  align-items: center;
+  gap: 8px 24px;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-muted);
+}
+.human-review-summary h3 { margin: 0; font-size: 15px; }
+.human-review-summary p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.human-review-counts { margin: 0 !important; color: var(--text) !important; font-variant-numeric: tabular-nums; }
+.human-review-complete { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; color: var(--pass) !important; }
+.human-review-complete svg { width: 14px; }
 .repair-list { display: grid; }
 .repair-item {
   min-width: 0;
@@ -338,6 +352,10 @@ svg { flex: 0 0 auto; }
 .repair-class { padding-top: 2px; color: var(--quiet); font-size: 11px; font-weight: 650; }
 .repair-safe { color: var(--pass); }
 .repair-preview_required { color: var(--warning); }
+.human-accepted_intentional { background: #fbfdfb; }
+.human-needs_change { background: var(--warning-bg); }
+.human-accepted_intentional .repair-human_only { color: var(--pass); }
+.human-needs_change .repair-human_only { color: var(--warning); }
 .repair-copy { min-width: 0; }
 .repair-copy h3 { display: inline; margin: 0; font-size: 14px; }
 .repair-timecode {
@@ -352,7 +370,8 @@ svg { flex: 0 0 auto; }
 }
 .repair-copy p { margin: 7px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .repair-copy small { display: block; margin-top: 5px; color: var(--text); font-size: 11px; }
-.repair-actions { display: flex; align-items: center; gap: 10px; }
+.repair-copy .human-decision-copy { color: var(--muted); font-weight: 650; }
+.repair-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; }
 .approved-label { display: inline-flex; align-items: center; gap: 4px; color: var(--pass); font-size: 11px; font-weight: 650; }
 .approved-label svg { width: 13px; }
 .repair-preview { padding: 22px; border-top: 1px solid var(--line-strong); background: var(--surface-muted); }
@@ -368,6 +387,13 @@ svg { flex: 0 0 auto; }
 .repaired-output { display: grid; grid-template-columns: minmax(220px, 0.75fr) minmax(300px, 1fr) auto; align-items: center; gap: 24px; padding: 22px; border-top: 1px solid var(--line-strong); background: var(--pass-bg); }
 .repaired-output small { display: block; margin-top: 8px; color: var(--muted); font-size: 12px; }
 .repaired-output video { width: 100%; max-height: 260px; background: #171917; }
+.verification-progress { margin: 16px 0 0; color: var(--muted); }
+.verification-items { display: grid; gap: 10px; margin: 16px 0; }
+.verification-items > p, .verification-items article { margin: 0; padding-top: 10px; border-top: 1px solid var(--line); }
+.verification-items p { margin: 4px 0; color: var(--muted); }
+.review-reel { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.review-reel h4, .review-reel p { margin: 0 0 8px; }
+.review-reel ol { margin: 12px 0 16px; padding-left: 22px; color: var(--muted); }
 .download-repair { text-decoration: none; white-space: nowrap; }
 
 .review-workspace {
@@ -531,6 +557,8 @@ svg { flex: 0 0 auto; }
   .check-details ul { grid-template-columns: minmax(0, 1fr); }
   .repair-item { grid-template-columns: minmax(0, 1fr) auto; }
   .repair-class { grid-column: 1 / -1; }
+  .human-review-summary { grid-template-columns: minmax(0, 1fr); }
+  .human-review-complete { grid-column: 1; }
   .repaired-output { grid-template-columns: minmax(0, 1fr); }
   .download-repair { justify-self: start; }
 }
@@ -560,7 +588,8 @@ svg { flex: 0 0 auto; }
   .repair-header, .repair-item { align-items: stretch; flex-direction: column; }
   .repair-header { display: flex; }
   .repair-item { display: flex; }
-  .repair-actions { align-items: flex-start; flex-direction: column; }
+  .repair-actions { align-items: flex-start; flex-direction: column; justify-content: flex-start; }
+  .human-review-summary { padding-inline: 18px; }
   .repair-comparison { grid-template-columns: minmax(0, 1fr); }
   .repair-preview-actions { flex-direction: column; }
 }

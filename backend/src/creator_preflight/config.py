@@ -252,6 +252,22 @@ class APIConfig(BaseModel):
         return list(dict.fromkeys(cleaned))
 
 
+class VerificationConfig(BaseModel):
+    """Bounded deterministic repaired-output comparison and reel settings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    visual_sample_fps: float = Field(default=2.0, gt=0, le=10)
+    maximum_visual_samples: int = Field(default=1200, ge=10, le=10000)
+    visual_mean_difference_threshold: float = Field(default=18.0, ge=0, le=255)
+    changed_pixel_difference_threshold: int = Field(default=24, ge=1, le=255)
+    changed_pixel_fraction_threshold: float = Field(default=0.20, gt=0, le=1)
+    edit_boundary_tolerance_seconds: float = Field(default=0.75, ge=0, le=10)
+    review_reel_context_seconds: float = Field(default=3.0, ge=0, le=30)
+    review_reel_maximum_segments: int = Field(default=12, ge=1, le=50)
+    review_reel_maximum_duration_seconds: float = Field(default=180.0, gt=0, le=600)
+
+
 class CreatorRuleConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -272,6 +288,7 @@ class PreflightConfig(BaseModel):
     transcription: TranscriptionConfig = Field(default_factory=TranscriptionConfig)
     ai_review: AIReviewConfig = Field(default_factory=AIReviewConfig)
     api: APIConfig = Field(default_factory=APIConfig)
+    verification: VerificationConfig = Field(default_factory=VerificationConfig)
 
 
 class ConfigurationError(Exception):

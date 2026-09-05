@@ -204,6 +204,42 @@ class FFmpegRepairEngine:
             removed_duration_seconds=selected.end_seconds - selected.start_seconds,
         )
 
+    def render_segments(
+        self,
+        source_path: str | Path,
+        output_path: str | Path,
+        intervals: list[tuple[float, float]],
+        *,
+        media: MediaInspection | None = None,
+    ) -> RepairRenderResult:
+        """Concatenate backend-generated source intervals into a bounded review reel."""
+
+        inspection = media or MediaInspector(ffprobe_binary=self.ffprobe_binary).inspect(source_path)
+        duration = inspection.duration_seconds
+        if not inspection.has_video or duration is None:
+            raise RepairError("repair_video_stream_missing", "The source has no usable video stream.")
+        if not intervals or len(intervals) > 12:
+            raise RepairError("review_reel_intervals_invalid", "The review reel intervals are invalid.")
+        normalized: list[tuple[float, float]] = []
+        for start, end in intervals:
+            if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start or end > duration + DURATION_TOLERANCE_SECONDS:
+                raise RepairError("review_reel_intervals_invalid", "A review reel interval is outside the repaired video.")
+            normalized.append((start, min(end, duration)))
+        source = Path(source_path).resolve()
+        output = Path(output_path).resolve()
+        if source == output:
+            raise RepairError("repair_source_overwrite_forbidden", "Creator Preflight will not overwrite the repaired video.")
+        self._render_intervals(source, output, normalized, inspection)
+        output_media = MediaInspector(ffprobe_binary=self.ffprobe_binary).inspect(output)
+        if not output_media.has_video or output_media.duration_seconds is None:
+            raise RepairError("repair_output_invalid", "The review reel could not be validated.")
+        return RepairRenderResult(
+            output_path=output,
+            original_duration_seconds=duration,
+            output_duration_seconds=output_media.duration_seconds,
+            removed_duration_seconds=max(0.0, duration - sum(end - start for start, end in normalized)),
+        )
+
     def _render_intervals(
         self,
         source: Path,

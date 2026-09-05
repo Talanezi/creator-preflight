@@ -2,9 +2,9 @@
 
 ## Current milestone
 
-Milestone 17 — Repair Mode.
+Milestone 18 — Verify & Review.
 
-Status: completed on 2026-09-05. Typed backend-owned repair planning, safe preview/apply rendering, and the session-local browser Repair Queue are implemented and release-gated. Deterministic black repair acceptance succeeded end to end. Both permitted real Full Review attempts completed and cleaned up remotely, but Gemini abstained from the previously established accidental-repetition observation; under the milestone's conditional acceptance rule no duplicate repair was fabricated and accepted Viewer behavior was left unchanged.
+Status: completed on 2026-09-05. A rendered repair is automatically re-scanned, checked against its authorized timeline transform, classified as resolved/remaining/new, compared visually across unaffected regions, and summarized in a bounded playable Review Reel. Human-only findings now form a session-local decision queue with explicit pending, accepted-intentional, and needs-change dispositions. Clean and deliberately mutated local acceptance controls both passed without Gemini calls.
 
 ## Completed
 
@@ -114,6 +114,14 @@ Status: completed on 2026-09-05. Typed backend-owned repair planning, safe previ
 - Dedicated FFmpeg repair rendering validates untrusted original-timeline ranges, rejects overlaps and effectively whole-video removal, supports multiple non-overlapping cuts and video-only input, removes video and audio together, and creates a new H.264/AAC MP4 without overwriting the source.
 - Narrow preview/apply multipart APIs reuse upload limits, Origin protection, process capacity, worker-thread execution, structured errors, and temporary-file cleanup. Preview renders only bounded context around one repair; apply returns one downloadable repaired export.
 - The React Repair Queue uses the backend plan, supports original/proposed preview comparison, explicit approval/cancel/removal, multiple compatible approvals, one final render, playable/downloadable repaired-file state, render-error recovery, and full repair-state cleanup on New Scan.
+- Typed repair verification distinguishes render integrity, verification status (`VERIFIED`, `NEEDS_REVIEW`, `INCOMPLETE`), repaired-scan completeness, finding comparison, and unexpected visual changes.
+- A centralized timeline transform maps surviving original/repaired points and intervals, rejects invented mappings inside removed ranges, and supplies expected duration and cut boundaries.
+- Applying repairs automatically reuses `PreflightScanner` with the original Local/Full review mode. Partial provider execution preserves deterministic verification and never becomes a content finding or visual regression.
+- Bounded FFmpeg sampling compares corresponding unaffected 64×36 grayscale frames at up to 2 fps/1,200 samples using conservative mean and changed-pixel thresholds, with a 0.75-second edit-boundary exclusion and merged change intervals.
+- Backend finding comparison classifies original findings as resolved or remaining and repaired-only findings as new. Targeted removed intervals receive deterministic proof; absent untargeted AI observations remain conservatively unresolved.
+- A typed, prioritized Review Reel manifest merges overlapping three-second contexts for unexpected, remaining/new, and repaired moments under 12-segment/180-second defaults; the backend returns a playable H.264/AAC MP4.
+- The React repaired-output flow automatically enters a verifying state, retains the repaired export on verification failure, renders resolved/remaining/new/unexpected evidence with repaired-video seeking, and exposes playable/downloadable repaired video and Review Reel blobs. New Scan releases all related object URLs.
+- Human-only repair-plan items now start pending and can be marked accepted-intentional or needs-change, changed later, and tracked through a concise reviewed/pending summary without altering the automated verdict or calling accepted content resolved. Timestamped items retain click-to-seek; global items remain reviewable without fabricated timestamps; New Scan clears every disposition.
 
 ## Not implemented
 
@@ -127,8 +135,11 @@ None known.
 
 ## Known repair limitations
 
-- M17 supports only removal of validated time ranges and normalizes repaired output to MP4/H.264/AAC. It is not a general editor and does not re-scan or certify the repaired export.
+- Repair Mode supports only removal of validated time ranges and normalizes repaired output to MP4/H.264/AAC. It is not a general editor.
 - The controlled live M17 Viewer fixture did not yield `AI_ACCIDENTAL_REPETITION` in either permitted acceptance attempt. The first returned only `AI_VISIBLE_PLACEHOLDER`; the provider-variance retry returned a clean Viewer result. Accepted M13 evidence and automated M17 tests cover the duplicate interval contract, removal of the repeated occurrence, and repair mapping, but a real provider-returned duplicate was not previewed or rendered during M17.
+- M18 unexpected-change detection is intentionally visual and sampled. Audio verification covers stream preservation, readability, and duration/synchronization expectations, not waveform identity or every transient change.
+- Finding comparison is stable-code/timeline based rather than semantic. Untimed findings are matched conservatively by code, and probabilistic AI absence is not treated as deterministic resolution unless the authorized operation itself removed the complete targeted interval.
+- On very short inputs such as the 9-second acceptance fixture, merged Review Reel contexts can cover the entire repaired video, so the repaired export and reel can appear identical. This is a presentation issue deferred to Milestone 19; M18 reel generation is unchanged.
 
 ## Known detector limitations
 
@@ -327,3 +338,9 @@ None known.
 - Milestone 17 deterministic black acceptance — the existing 12.0-second anomaly MP4 produced a preview-required `REMOVE_RANGE` proposal for black video at 2.0–5.0 seconds. The bounded repaired preview was a playable 6.0-second MP4; applying the 3.0-second removal produced a 9.0-second MP4 with independently readable 9.0-second video and audio streams. The source SHA-256 remained unchanged and temporary outputs were cleaned.
 - Milestone 17 live duplicate acceptance — two Full Review calls used the existing 48-second problematic Viewer fixture. Both completed with `COMPLETE` AI provenance and successful remote cleanup, and both left the source SHA-256 unchanged. The first returned one accepted visible-placeholder issue; the single permitted provider-variance retry returned a clean Viewer result. Neither returned `AI_ACCIDENTAL_REPETITION`, so no live duplicate proposal, preview, or repaired export was fabricated. No prompt, threshold, or accepted Viewer logic was changed.
 - Milestone 17 final release gate — `.venv/bin/python -m pytest backend/tests`: 199 passed, 0 failed, with 1 upstream Starlette warning. `cd frontend && npm test -- --run`: 2 files and 41 tests passed, 0 failed. `npm run build` passed TypeScript project validation and the Vite 8.2.2 production build with 1,826 modules transformed. `.venv/bin/python -m compileall -q backend/src scripts` passed.
+- Milestone 18 targeted validation — 55 backend verification/API/config tests passed, 0 failed, with 1 upstream Starlette warning; 46 frontend API/workflow tests passed, 0 failed. Fake-provider repaired Full Review used one upload, three existing video tasks, and one cleanup while preserving `COMPLETE` repaired-scan semantics.
+- Milestone 18 clean repair acceptance — the 12.0-second deterministic anomaly video removed black 2.0–5.0 seconds and produced the expected/readable 9.0-second video+audio export. `VIDEO_BLACK_SEGMENT` was deterministically `RESOLVED`; the shortened silence fell below its detector threshold and resolved; unaffected freeze remained at mapped 4.0 seconds; global audio peak remained; no repaired-only findings or unexpected visual changes appeared. The playable 9.0-second Review Reel merged the repair and remaining-finding contexts into one manifest entry.
+- Milestone 18 deliberate regression acceptance — an otherwise identical repaired copy received a conspicuous magenta mutation at repaired 0.5–1.5 seconds, outside the approved edit and boundary tolerance. The bounded comparator returned exactly one unexpected interval at 0.5–1.5 seconds (two samples, maximum mean grayscale difference approximately 56.92), no other false-positive interval, and included it in a playable 9.002-second video+audio Review Reel.
+- Milestone 18 final release gate — `.venv/bin/python -m pytest backend/tests`: 213 passed, 0 failed, with 1 upstream Starlette warning. `cd frontend && npm test -- --run`: 2 files and 46 tests passed, 0 failed. `npm run build` passed TypeScript project validation and Vite 8.2.2 production bundling with 1,826 modules transformed. `.venv/bin/python -m compileall -q backend/src scripts` passed. No live Gemini call was used.
+- Milestone 18 human-review continuation — `cd frontend && npm test -- --run src/App.test.tsx`: 1 file and 38 tests passed, 0 failed. Focused coverage verifies pending defaults, timestamp seeking, accepted-intentional and needs-change decisions, decision reset, global findings, completion counts, terminology, and clean state across New Scan.
+- Milestone 18 human-review final frontend gate — `cd frontend && npm test -- --run`: 2 files and 48 tests passed, 0 failed. `npm run build` passed TypeScript project validation and Vite 8.2.2 production bundling with 1,826 modules transformed. Backend tests were not rerun because this continuation changed no backend production code.

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { needsReviewReport } from "../mocks/reports";
-import { applyRepairs, fetchCapabilities, PreflightApiError, previewRepair, scanPreflight } from "./preflight";
+import { applyRepairs, fetchCapabilities, PreflightApiError, previewRepair, renderReviewReel, scanPreflight, verifyRepair } from "./preflight";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -180,6 +180,23 @@ describe("preflight API client", () => {
       ],
     )).rejects.toMatchObject({ code: "repair_ranges_overlap", status: 400 });
   });
+
+  it("submits repaired verification and Review Reel multipart requests", async () => {
+    const requests: Array<{ url: string; form: FormData }> = [];
+    vi.stubGlobal("fetch", vi.fn((url: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ url: String(url), form: init?.body as FormData });
+      return Promise.resolve(String(url).endsWith("review-reel") ? videoResponse() : jsonResponse(verificationResponse()));
+    }));
+    const original = new File(["original"], "original.mp4", { type: "video/mp4" });
+    const repaired = new File(["repaired"], "original.repaired.mp4", { type: "video/mp4" });
+    const operation = { operation_type: "REMOVE_RANGE" as const, start_seconds: 2, end_seconds: 5 };
+    const verification = await verifyRepair({ originalVideo: original, repairedVideo: repaired, operations: [operation], originalReport: needsReviewReport, title: "Title", description: "Description", reviewMode: "local" });
+    await renderReviewReel(repaired, verification.review_reel_manifest);
+    expect(requests.map((item) => item.url)).toEqual(["/api/v1/repairs/verify", "/api/v1/repairs/review-reel"]);
+    expect((requests[0].form.get("original_file") as File).name).toBe("original.mp4");
+    expect((requests[0].form.get("repaired_file") as File).name).toBe("original.repaired.mp4");
+    expect(JSON.parse(String(requests[0].form.get("operations_json")))).toEqual({ operations: [operation] });
+  });
 });
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -215,4 +232,17 @@ function videoResponse(): Response {
       "X-Repair-Removed-Duration": "3",
     },
   });
+}
+
+function verificationResponse() {
+  return {
+    schema_version: "1.0", status: "VERIFIED", approved_repair_count: 1,
+    resolved: [], remaining: [], new: [], unexpected_changes: [],
+    original_duration_seconds: 9, repaired_duration_seconds: 6, expected_duration_seconds: 6,
+    integrity: { passed: true, duration_matches: true, streams_match: true, resolution_matches: true, operations_verified: 1, reference_intervals_survived: true, explanation: "Passed." },
+    repaired_preflight_report: { ...needsReviewReport, media: { ...needsReviewReport.media, duration_seconds: 6 } },
+    regression_analysis_completeness: "COMPLETE",
+    review_reel_manifest: { entries: [{ reel_start_seconds: 0, reel_end_seconds: 2, source_start_seconds: 0, source_end_seconds: 2, reason: "Repair", category: "repair", source_id: "repair-1" }], total_duration_seconds: 2 },
+    review_reel_available: true, limitations: [],
+  };
 }

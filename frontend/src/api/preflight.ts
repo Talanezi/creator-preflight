@@ -11,6 +11,8 @@ import type {
   PreflightReport,
   RepairOperation,
   ReviewMode,
+  ReviewReelManifest,
+  VerificationReport,
 } from "../types/preflight";
 
 export interface PreflightScanInput {
@@ -27,6 +29,18 @@ export interface RepairMediaResult {
   originalDurationSeconds: number | null;
   outputDurationSeconds: number | null;
   removedDurationSeconds: number | null;
+}
+
+export interface VerifyRepairInput {
+  originalVideo: File;
+  repairedVideo: File;
+  operations: RepairOperation[];
+  originalReport: PreflightReport;
+  title: string;
+  description: string;
+  reviewMode: ReviewMode;
+  captions?: File | null;
+  thumbnail?: File | null;
 }
 
 interface StructuredErrorResponse {
@@ -139,6 +153,40 @@ export async function applyRepairs(
   form.append("file", video, video.name);
   form.append("operations_json", JSON.stringify({ operations }));
   return requestRepairMedia("/api/v1/repairs/apply", form, options.signal);
+}
+
+export async function verifyRepair(input: VerifyRepairInput, options: { signal?: AbortSignal } = {}): Promise<VerificationReport> {
+  const form = new FormData();
+  form.append("original_file", input.originalVideo, input.originalVideo.name);
+  form.append("repaired_file", input.repairedVideo, input.repairedVideo.name);
+  form.append("operations_json", JSON.stringify({ operations: input.operations }));
+  form.append("original_report_json", JSON.stringify(input.originalReport));
+  form.append("title", input.title);
+  form.append("description", input.description);
+  form.append("review_mode", input.reviewMode);
+  if (input.captions) form.append("captions", input.captions, input.captions.name);
+  if (input.thumbnail) form.append("thumbnail", input.thumbnail, input.thumbnail.name);
+  let response: Response;
+  try {
+    response = await fetch("/api/v1/repairs/verify", { method: "POST", body: form, signal: options.signal });
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new PreflightApiError("The repaired video could not be verified.", { code: "backend_unreachable", cause: error });
+  }
+  const payload = await parseJsonResponse(response);
+  if (!response.ok) {
+    const structured = parseStructuredError(payload);
+    throw new PreflightApiError(structured?.error.message ?? "The repaired video could not be verified.", { code: structured?.error.code ?? "verification_failed", status: response.status });
+  }
+  if (!isVerificationReport(payload)) throw new PreflightApiError("The backend returned an unexpected verification report.", { code: "invalid_response", status: response.status });
+  return payload;
+}
+
+export async function renderReviewReel(repairedVideo: File, manifest: ReviewReelManifest, options: { signal?: AbortSignal } = {}): Promise<RepairMediaResult> {
+  const form = new FormData();
+  form.append("repaired_file", repairedVideo, repairedVideo.name);
+  form.append("manifest_json", JSON.stringify(manifest));
+  return requestRepairMedia("/api/v1/repairs/review-reel", form, options.signal);
 }
 
 export function errorPresentation(error: unknown): { title: string; message: string; detail?: string } {
@@ -264,6 +312,51 @@ function isPreflightReport(value: unknown): value is PreflightReport {
     && isClaimReviewSummary(value.claim_review)
     && isRepairPlan(value.repair_plan)
     && isNonnegativeNumber(value.scan_duration_seconds);
+}
+
+function isVerificationReport(value: unknown): value is VerificationReport {
+  if (!isRecord(value)) return false;
+  return typeof value.schema_version === "string"
+    && (value.status === "VERIFIED" || value.status === "NEEDS_REVIEW" || value.status === "INCOMPLETE")
+    && isNonnegativeNumber(value.approved_repair_count)
+    && Array.isArray(value.resolved) && value.resolved.every(isFindingComparison)
+    && Array.isArray(value.remaining) && value.remaining.every(isFindingComparison)
+    && Array.isArray(value.new) && value.new.every(isFindingComparison)
+    && Array.isArray(value.unexpected_changes) && value.unexpected_changes.every(isUnexpectedChange)
+    && isNonnegativeNumber(value.original_duration_seconds)
+    && isNonnegativeNumber(value.repaired_duration_seconds)
+    && isNonnegativeNumber(value.expected_duration_seconds)
+    && isRecord(value.integrity) && typeof value.integrity.passed === "boolean"
+    && isPreflightReport(value.repaired_preflight_report)
+    && (value.regression_analysis_completeness === "COMPLETE" || value.regression_analysis_completeness === "PARTIAL" || value.regression_analysis_completeness === "FAILED")
+    && isReviewReelManifest(value.review_reel_manifest)
+    && typeof value.review_reel_available === "boolean"
+    && Array.isArray(value.limitations) && value.limitations.every((item) => typeof item === "string");
+}
+
+function isFindingComparison(value: unknown): boolean {
+  return isRecord(value)
+    && (value.status === "RESOLVED" || value.status === "REMAINING" || value.status === "NEW")
+    && (value.original_finding === null || isFinding(value.original_finding))
+    && (value.repaired_finding === null || isFinding(value.repaired_finding))
+    && isNullableNumber(value.expected_repaired_start_seconds)
+    && isNullableNumber(value.expected_repaired_end_seconds)
+    && typeof value.deterministically_verified === "boolean"
+    && typeof value.explanation === "string";
+}
+
+function isUnexpectedChange(value: unknown): boolean {
+  return isRecord(value) && isNonnegativeNumber(value.start_seconds) && isNonnegativeNumber(value.end_seconds)
+    && value.end_seconds > value.start_seconds && isNonnegativeNumber(value.maximum_mean_difference) && isNonnegativeNumber(value.sample_count);
+}
+
+function isReviewReelManifest(value: unknown): value is ReviewReelManifest {
+  return isRecord(value) && Array.isArray(value.entries) && value.entries.every((entry) => isRecord(entry)
+    && isNonnegativeNumber(entry.reel_start_seconds) && isNonnegativeNumber(entry.reel_end_seconds)
+    && isNonnegativeNumber(entry.source_start_seconds) && isNonnegativeNumber(entry.source_end_seconds)
+    && typeof entry.reason === "string" && typeof entry.category === "string"
+    && (entry.source_id === null || typeof entry.source_id === "string"))
+    && isNonnegativeNumber(value.total_duration_seconds);
 }
 
 function isRepairPlan(value: unknown): boolean {

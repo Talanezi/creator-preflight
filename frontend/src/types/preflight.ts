@@ -183,3 +183,67 @@ export interface PreflightReport {
   repair_plan: RepairPlan;
   scan_duration_seconds: number;
 }
+
+export type RepairVerificationStatus = "VERIFIED" | "NEEDS_REVIEW" | "INCOMPLETE";
+export type FindingComparisonStatus = "RESOLVED" | "REMAINING" | "NEW";
+
+export interface FindingComparison {
+  status: FindingComparisonStatus;
+  original_finding: Finding | null;
+  repaired_finding: Finding | null;
+  expected_repaired_start_seconds: number | null;
+  expected_repaired_end_seconds: number | null;
+  deterministically_verified: boolean;
+  explanation: string;
+}
+
+export interface RepairIntegrityResult {
+  passed: boolean;
+  duration_matches: boolean;
+  streams_match: boolean;
+  resolution_matches: boolean;
+  operations_verified: number;
+  reference_intervals_survived: boolean;
+  explanation: string;
+}
+
+export interface UnexpectedChangeInterval {
+  start_seconds: number;
+  end_seconds: number;
+  maximum_mean_difference: number;
+  sample_count: number;
+}
+
+export interface ReviewReelEntry {
+  reel_start_seconds: number;
+  reel_end_seconds: number;
+  source_start_seconds: number;
+  source_end_seconds: number;
+  reason: string;
+  category: string;
+  source_id: string | null;
+}
+
+export interface ReviewReelManifest {
+  entries: ReviewReelEntry[];
+  total_duration_seconds: number;
+}
+
+export interface VerificationReport {
+  schema_version: string;
+  status: RepairVerificationStatus;
+  approved_repair_count: number;
+  resolved: FindingComparison[];
+  remaining: FindingComparison[];
+  new: FindingComparison[];
+  unexpected_changes: UnexpectedChangeInterval[];
+  original_duration_seconds: number;
+  repaired_duration_seconds: number;
+  expected_duration_seconds: number;
+  integrity: RepairIntegrityResult;
+  repaired_preflight_report: PreflightReport;
+  regression_analysis_completeness: ScanCompleteness;
+  review_reel_manifest: ReviewReelManifest;
+  review_reel_available: boolean;
+  limitations: string[];
+}

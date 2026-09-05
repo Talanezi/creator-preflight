@@ -151,6 +151,7 @@ export function App() {
           filename={inputs.video?.name ?? "selected video"}
           previewUrl={previewUrl}
           sourceFile={inputs.video}
+          packageInput={{ title: inputs.title, description: inputs.description, captions: inputs.captions, thumbnail: inputs.thumbnail, reviewMode: inputs.reviewMode }}
         />
       )}
       {view === "error" && error && <ErrorState {...error} onRetry={returnToForm} />}
